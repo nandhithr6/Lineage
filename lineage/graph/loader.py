@@ -45,6 +45,8 @@ KEYS = [
     ("KEP", "id"),
     ("SIG", "id"),
     ("Person", "handle"),
+    ("CodePath", "id"),
+    ("Team", "id"),
 ]
 
 
@@ -163,7 +165,7 @@ _EDGE_PROV = """SET e.source_url = r.source_url, e.extracted_by = r.extracted_by
 
 def edge_query(rel: str, src: tuple[str, str], dst: tuple[str, str], extra: str = "") -> str:
     assert rel in {"OWNED_BY", "PARTICIPATES", "INTRODUCES", "REPLACES", "SEE_ALSO", "SUPERSEDED_BY", "AUTHORED",
-                   "APPROVED_KEP", "CHAIRS", "TECH_LEAD_OF", "EMERITUS_LEAD_OF"}, rel
+                   "APPROVED_KEP", "CHAIRS", "TECH_LEAD_OF", "EMERITUS_LEAD_OF", "OWNS", "CHILD_OF", "IN_PATH"}, rel
     return (f"UNWIND $rows AS r MATCH (a:{src[0]} {{{src[1]}: r.src}}), (b:{dst[0]} {{{dst[1]}: r.dst}}) "
             f"MERGE (a)-[e:{rel}]->(b) {extra} {_EDGE_PROV}")
 
@@ -257,6 +259,69 @@ def load_verified(g: Graph, path: Path, claims_source: dict[str, str], now: str)
     return len(rows)
 
 
+Q_CODEPATH = """
+UNWIND $rows AS r
+MERGE (c:CodePath {id: r.id})
+SET c.repo = r.repo, c.path = r.dir, c.has_owners = r.has_owners, c.no_parent_owners = r.no_parent_owners,
+    c.has_filters = r.has_filters, c.labels = r.labels, c.source_url = r.source_url
+"""
+Q_TEAM = "UNWIND $rows AS r MERGE (t:Team {id: r.id}) SET t.repo = r.repo, t.alias = r.alias"
+OWNER_RELS = ("APPROVER_OF", "REVIEWER_OF", "EMERITUS_APPROVER_OF")
+
+
+def owner_edge_query(rel: str, subject_label: str) -> str:
+    """Ownership edge from a Person or Team to a CodePath. valid_from and filter are part of the edge identity so a
+    person can hold the same role over several separate time intervals; valid_to null = still true at the latest sample."""
+    assert rel in OWNER_RELS and subject_label in ("Person", "Team")
+    key = "handle" if subject_label == "Person" else "id"
+    return (f"UNWIND $rows AS r MATCH (a:{subject_label} {{{key}: r.subject}}), (b:CodePath {{id: r.dir_id}}) "
+            f"MERGE (a)-[e:{rel} {{valid_from: r.valid_from, filter: r.filter}}]->(b) "
+            "SET e.valid_to = r.valid_to, e.source_url = r.source_url, e.extracted_by = 'structured', e.confidence = 1.0, "
+            "e.recorded_at = coalesce(e.recorded_at, $now)")
+
+
+Q_MEMBER = """
+UNWIND $rows AS r
+MATCH (p:Person {handle: r.handle}), (t:Team {id: r.team})
+MERGE (p)-[e:MEMBER_OF {valid_from: r.valid_from}]->(t)
+SET e.valid_to = r.valid_to, e.source_url = r.source_url, e.extracted_by = 'structured', e.confidence = 1.0,
+    e.recorded_at = coalesce(e.recorded_at, $now)
+"""
+Q_RELEASE_DATE = "UNWIND $rows AS r MATCH (x:Release {num: r.num}) SET x.date = r.date"
+
+
+def load_owners(g: Graph, snap: Path, labels: list[dict], now: str) -> None:
+    from lineage.ingest.owners import scope_dirs_k8s
+
+    codepaths = read_jsonl(snap / "codepaths.jsonl")
+    rows = [{**c, "id": f"{c['repo']}:{c['dir']}"} for c in codepaths]
+    run(g, Q_CODEPATH, rows, now)
+    run(g, edge_query("CHILD_OF", ("CodePath", "id"), ("CodePath", "id")),
+        prov([{"src": r["id"], "dst": f"{r['repo']}:{r['parent']}", "source_url": r["source_url"] or ""}
+              for r in rows if r["parent"] is not None]), now)
+    edges, members = read_jsonl(snap / "owners_edges.jsonl"), read_jsonl(snap / "team_members.jsonl")
+    teams = {e["subject"] for e in edges if e["subject_kind"] == "team"} | {m["team"] for m in members}
+    run(g, Q_TEAM, [{"id": t, "repo": t.split(":")[0], "alias": t.split(":", 1)[1]} for t in sorted(teams)], now)
+    people = sorted({e["subject"] for e in edges if e["subject_kind"] == "person"} | {m["handle"] for m in members})
+    run(g, Q_PERSON, [{"handle": h, "name": None} for h in people], now)
+    for rel in OWNER_RELS:
+        for kind, label in (("person", "Person"), ("team", "Team")):
+            sel = [{**e, "dir_id": f"{e['repo']}:{e['dir']}"} for e in edges if e["role"] == rel and e["subject_kind"] == kind]
+            run(g, owner_edge_query(rel, label), sel, now)
+    run(g, Q_MEMBER, members, now)
+    pages = sorted({x["page_path"] for x in labels})
+    run(g, edge_query("IN_PATH", ("DocPage", "path"), ("CodePath", "id")),
+        prov([{"src": p_, "dst": f"website:{str(Path(p_).parent)}", "source_url": ""} for p_ in pages]), now)
+    sigs_url = {s["id"]: s["source_url"] for s in read_jsonl(SIGS_SNAPSHOT)}
+    owns = [{"src": sig, "dst": f"kubernetes:{d}", "source_url": sigs_url[sig]}
+            for d, sigs in scope_dirs_k8s().items() for sig in sorted(set(sigs))]
+    run(g, edge_query("OWNS", ("SIG", "id"), ("CodePath", "id")), prov(owns), now)
+    dates = read_jsonl(snap / "release_dates.jsonl")
+    run(g, Q_RELEASE_DATE, dates, now)
+    log.info("code paths: %d, teams: %d, ownership rows: %d, team memberships: %d, SIG OWNS: %d",
+             len(rows), len(teams), len(edges), len(members), len(owns))
+
+
 def load_gates(g: Graph, gates: list[Gate], now: str) -> None:
     rows = [row for gate in gates for row in expand_to_releases(gate)]
     releases = sorted({r["release_num"]: r["release"] for r in rows}.items())
@@ -300,10 +365,11 @@ def counts(g: Graph) -> dict[str, int]:
     out: dict[str, int] = {}
     for label in ["Release", "FeatureGate", "DocPage", "DocSection", "Claim"]:
         out[label] = g.ro_query(f"MATCH (n:{label}) RETURN count(n)").result_set[0][0]
-    for label in ["KEP", "SIG", "Person", "Finding"]:
+    for label in ["KEP", "SIG", "Person", "Finding", "CodePath", "Team"]:
         out[label] = g.ro_query(f"MATCH (n:{label}) RETURN count(n)").result_set[0][0]
     for rel in ["STAGE_IN", "HAS_SECTION", "HAS_CLAIM", "ABOUT", "OWNED_BY", "PARTICIPATES", "INTRODUCES", "REPLACES",
-                "SEE_ALSO", "SUPERSEDED_BY", "AUTHORED", "APPROVED_KEP", "CHAIRS", "TECH_LEAD_OF", "EMERITUS_LEAD_OF"]:
+                "SEE_ALSO", "SUPERSEDED_BY", "AUTHORED", "APPROVED_KEP", "CHAIRS", "TECH_LEAD_OF", "EMERITUS_LEAD_OF",
+                "CHILD_OF", "IN_PATH", "OWNS", "APPROVER_OF", "REVIEWER_OF", "EMERITUS_APPROVER_OF", "MEMBER_OF"]:
         out[rel] = g.ro_query(f"MATCH ()-[e:{rel}]->() RETURN count(e)").result_set[0][0]
     return out
 
@@ -320,6 +386,8 @@ def load_all(g: Graph, gates_path: Path = GATES_SNAPSHOT, labels_path: Path = LA
         load_keps(g, read_jsonl(KEPS_SNAPSHOT), now)
     if LINKS_SNAPSHOT.exists():
         load_links(g, LINKS_SNAPSHOT, {x["id"]: x["source_url"] for x in labels}, now)
+    if (Path("snapshot") / "owners_edges.jsonl").exists():
+        load_owners(g, Path("snapshot"), labels, now)
     if VERIFIED_LINKS.exists():
         load_verified(g, VERIFIED_LINKS, {x["id"]: x["source_url"] for x in labels}, now)
     return counts(g)

@@ -1,0 +1,90 @@
+====================================================================================================
+LINEAGE  |  Resource Quotas  (https://kubernetes.io/docs/concepts/policy/resource-quotas/)
+====================================================================================================
+
+1. FIND  [FINDING: stale_stage]
+   label says alpha, but gate LocalStorageCapacityIsolation is removed after reaching stable (now locked on)
+
+2. THE CLAIM
+   section: "Quota for local ephemeral storage"   (line 194)
+   label:   {{< feature-state for_k8s_version="v1.8" state="alpha" >}}   ->  says alpha since v1.8
+      source [e1]: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/concepts/policy/resource-quotas.md#L194
+
+3. LINKED TO FEATURE GATE
+   LocalStorageCapacityIsolation   confidence 1.0 (manual; verified by hand by Nan (project owner) on 2026-10-15)
+   linker alone scored 0.79 (near-tie with a sibling gate), reason: Section is about ResourceQuota for local ephemeral storage, which belongs to the original LocalStorageCapacityIsolation feature (KEP 361). The sibling gate LocalStorageCapacityIsolationFSQuotaMonitoring covers filesystem [...]
+      source [e2]: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/concepts/policy/resource-quotas.md#L194
+
+4. WHAT THE GATE HISTORY SAYS  (gate removed)
+   alpha      1.7 to 1.9       [e3]
+   beta       1.10 to 1.24     [e4]
+   stable     1.25 to 1.26     [e5]
+   source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/LocalStorageCapacityIsolation.md
+
+5. EXPLAIN
+   claimed : alpha since v1.8
+   verified: gate LocalStorageCapacityIsolation is removed after reaching stable (now locked on)
+
+6. THE DECISION BEHIND IT
+   KEP sig-storage/361-local-ephemeral-storage-isolation  "Local Ephemeral Storage Capacity Isolation"
+   status implementable, stage stable, milestone v1.25; link to the gate: readme_mention (confidence 0.7)
+      source [e7]: https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-storage/361-local-ephemeral-storage-isolation/README.md
+   owned by team (SIG): sig-storage - Storage
+      source [e8]: https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-storage/361-local-ephemeral-storage-isolation/kep.yaml
+   other KEPs that mention the gate: sig-node/1029-ephemeral-storage-quotas (readme_mention), sig-node/6386-pod-level-ephemeral-storage (readme_mention)
+
+7. SUGGESTED REVIEWERS  (emeritus approvers are never suggested; a person scores once per kind of role)
+   -- docs approvers (can merge the doc fix)
+   @caesarsage         score 1.0  [e9]
+        - approves docs under content/en, content/en/docs via website:sig-docs-en-owners
+   @dipesh-rawat       score 1.0  [e10]
+        - approves docs under content/en, content/en/docs via website:sig-docs-en-owners, website:sig-docs-website-owners
+   @divya-mohan0209    score 1.0  [e11]
+        - approves docs under content/en, content/en/docs via website:sig-docs-en-owners, website:sig-docs-website-owners
+   @katcosgrove        score 1.0  [e12]
+        - approves docs under content/en, content/en/docs via website:sig-docs-en-owners, website:sig-docs-website-owners
+   -- domain experts (can check the facts)
+   @msau42             score 2.3  [e13]
+        - approves code in pkg/volume, staging/src/k8s.io/csi-translation-lib (sig-storage) via kubernetes:sig-storage-approvers
+        - approved the design decision 361-local-ephemeral-storage-isolation
+        - tech lead of sig-storage
+   @xing-yang          score 2.3  [e14]
+        - approves code in pkg/volume, staging/src/k8s.io/csi-translation-lib (sig-storage) via kubernetes:sig-storage-approvers
+        - approved the design decision 361-local-ephemeral-storage-isolation
+        - chair of sig-storage
+   @gnufied            score 1.5  [e15]
+        - approves code in pkg/volume, staging/src/k8s.io/csi-translation-lib (sig-storage) via kubernetes:sig-storage-approvers
+        - chair of sig-storage
+   @jsafrane           score 1.5  [e16]
+        - approves code in pkg/volume, staging/src/k8s.io/csi-translation-lib (+1 more) (sig-storage) via kubernetes:sig-storage-approvers
+        - tech lead of sig-storage
+
+8. GRAPH PATH
+   DocPage:content/en/docs/concepts/policy/resource-quotas.md
+     -> DocSection:Quota for local ephemeral storage
+     -> Claim:alpha since 1.8
+     -> FeatureGate:LocalStorageCapacityIsolation
+     -> Release:1.26 (stable)
+     -> KEP:sig-storage/361-local-ephemeral-storage-isolation
+     -> SIG:sig-storage
+
+9. REPAIR
+   (draft fix arrives in Step 9; Lineage never posts to Kubernetes)
+
+EVIDENCE INDEX
+   [e1] Claim      https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/concepts/policy/resource-quotas.md#L194
+   [e2] ABOUT      https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/concepts/policy/resource-quotas.md#L194
+   [e3] STAGE_IN   https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/LocalStorageCapacityIsolation.md
+   [e4] STAGE_IN   https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/LocalStorageCapacityIsolation.md
+   [e5] STAGE_IN   https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/LocalStorageCapacityIsolation.md
+   [e6] Finding    https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/LocalStorageCapacityIsolation.md
+   [e7] INTRODUCES https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-storage/361-local-ephemeral-storage-isolation/README.md
+   [e8] OWNED_BY   https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-storage/361-local-ephemeral-storage-isolation/kep.yaml
+   [e9] Reviewer   https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/OWNERS
+   [e10] Reviewer   https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/OWNERS
+   [e11] Reviewer   https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/OWNERS
+   [e12] Reviewer   https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/OWNERS
+   [e13] Reviewer   https://github.com/kubernetes/kubernetes/blob/cbfc0564b409b82c6ec0cf76e2d15860dd13b31b/pkg/volume/OWNERS
+   [e14] Reviewer   https://github.com/kubernetes/kubernetes/blob/cbfc0564b409b82c6ec0cf76e2d15860dd13b31b/pkg/volume/OWNERS
+   [e15] Reviewer   https://github.com/kubernetes/kubernetes/blob/cbfc0564b409b82c6ec0cf76e2d15860dd13b31b/pkg/volume/OWNERS
+   [e16] Reviewer   https://github.com/kubernetes/kubernetes/blob/cbfc0564b409b82c6ec0cf76e2d15860dd13b31b/pkg/volume/OWNERS

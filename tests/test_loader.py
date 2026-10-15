@@ -58,3 +58,50 @@ def test_seed_finding_end_to_end(graph):
     edge = graph.ro_query("MATCH (:Claim {id:$c})-[a:ABOUT]->(:FeatureGate {name:'LocalStorageCapacityIsolation'}) "
                           "RETURN a.method, a.link_confidence, a.linker_confidence, a.verified_by", {"c": seed[0].claim_id}).result_set
     assert edge[0][0] == "manual" and edge[0][1] == 1.0 and edge[0][2] is not None and edge[0][2] < 0.8
+
+
+def test_effective_owners_walk_up_and_time_travel(graph):
+    from lineage.graph.queries import effective_owners
+
+    load_all(graph)
+    page = "content/en/docs/concepts/policy/resource-quotas.md"
+    rows = effective_owners(graph, "website", page, is_file=True)
+    assert {r["declared_at"] for r in rows} == {"content/en", "content/en/docs"}  # stops at no_parent_owners
+    assert not any("localization" in (r["via_team"] or "") for r in rows)
+    assert {"tengqm", "reylejano"} <= {r["handle"] for r in rows if r["role"] == "APPROVER_OF"}
+    assert all(r["source_url"].startswith("https://github.com/kubernetes/website/blob/") for r in rows)
+
+    def job_approvers(as_of):
+        return {r["handle"] for r in effective_owners(graph, "kubernetes", "pkg/controller/job", as_of=as_of)
+                if r["role"] == "APPROVER_OF" and r["declared_at"] == "pkg/controller/job" and not r["via_team"]}
+
+    assert job_approvers(130) == {"alculquicondor"} and job_approvers(138) == {"mimowo"}
+
+
+def test_hero_trace_resource_quotas(graph):
+    from lineage.detect.drift import run_detector, write_findings
+    from lineage.graph.trace import build_trace
+    from lineage.hero import render
+
+    load_all(graph)
+    write_findings(graph, run_detector(graph)[0])
+    b = build_trace(graph, "resource-quotas")
+    assert b["status"] == "ok" and b["tool"] == "explain_finding"
+    s = b["sections"]
+    assert s["finding"]["kind"] == "stale_stage" and s["link"]["method"] == "manual"
+    assert [h["stage"] for h in s["gate"]["history"]] == ["alpha", "beta", "stable"]
+    assert s["kep"]["id"] == "sig-storage/361-local-ephemeral-storage-isolation" and s["kep"]["sig"] == "sig-storage"
+    groups = {r["group"] for r in s["reviewers"]}
+    assert groups == {"docs approver", "domain expert"} and not any(r["handle"] == "stewart-yu" for r in s["reviewers"])  # emeritus
+    assert all(e["source_url"] or e["type"] == "Finding" for e in b["evidence"] if e["type"] != "Reviewer")
+    text = render(b)
+    assert "LocalStorageCapacityIsolation" in text and "verified by hand" in text and "source [e1]" in text
+
+
+def test_hero_says_insufficient_evidence_when_nothing_matches(graph):
+    from lineage.graph.trace import build_trace
+    from lineage.hero import render
+
+    load_all(graph)
+    out = render(build_trace(graph, "no-such-page-anywhere"))
+    assert out.startswith("INSUFFICIENT EVIDENCE") and "nothing is guessed" in out

@@ -11,7 +11,7 @@ How OWNERS works (spec: https://www.kubernetes.dev/docs/guide/owners/):
 
 History (DECISIONS.md): sampled at release tags v1.30.0..v1.37.0 plus HEAD (labelled 1.38-dev), then collapsed into
 intervals. valid_from = first SAMPLED release where the fact was seen (the true start may be earlier); valid_to = the first
-sampled release where it was gone, or null if still present at HEAD. Website OWNERS are sampled at HEAD only.
+sampled release where it was gone, or null if still present at HEAD. source_url points at the LAST sample where it was still true. Website OWNERS are sampled at HEAD only.
 """
 from __future__ import annotations
 
@@ -180,7 +180,7 @@ def build_rows(repo_name: str, owners, aliases, shas, refs, order: list[int]):
     """Collapse sampled OWNERS into edge intervals. Returns (owner_rows, member_rows)."""
     url_repo = {"kubernetes": "kubernetes/kubernetes", "website": "kubernetes/website"}[repo_name]
     presence: dict[int, set] = {}
-    first_seen_url: dict[tuple, str] = {}
+    url_at: dict[tuple, str] = {}
     members_presence: dict[int, set] = {}
     for num in order:
         present, mem = set(), set()
@@ -189,7 +189,7 @@ def build_rows(repo_name: str, owners, aliases, shas, refs, order: list[int]):
                 kind = "team" if entry in aliases.get(num, {}) else "person"
                 key = (d, role, kind, entry, flt)
                 present.add(key)
-                first_seen_url.setdefault((key, num), f"https://github.com/{url_repo}/blob/{shas[num]}/{owners_path(d)}")
+                url_at[(key, num)] = f"https://github.com/{url_repo}/blob/{shas[num]}/{owners_path(d)}"
         for alias, people in aliases.get(num, {}).items():
             mem |= {(alias, p) for p in people}
         presence[num], members_presence[num] = present, mem
@@ -197,14 +197,16 @@ def build_rows(repo_name: str, owners, aliases, shas, refs, order: list[int]):
     for key, runs in collapse(presence, order).items():
         d, role, kind, entry, flt = key
         for start, end in runs:
+            last = order[order.index(end) - 1] if end is not None else order[-1]  # last sample where it was still true
             owner_rows.append({"repo": repo_name, "dir": d, "role": ROLES[role], "subject_kind": kind,
                                "subject": f"{repo_name}:{entry}" if kind == "team" else entry, "filter": flt,
-                               "valid_from": start, "valid_to": end, "source_url": first_seen_url[(key, start)]})
+                               "valid_from": start, "valid_to": end, "source_url": url_at[(key, last)]})
     member_rows = []
     for (alias, person), runs in collapse(members_presence, order).items():
         for start, end in runs:
+            last = order[order.index(end) - 1] if end is not None else order[-1]
             member_rows.append({"team": f"{repo_name}:{alias}", "handle": person, "valid_from": start, "valid_to": end,
-                                "source_url": f"https://github.com/{url_repo}/blob/{shas[start]}/OWNERS_ALIASES"})
+                                "source_url": f"https://github.com/{url_repo}/blob/{shas[last]}/OWNERS_ALIASES"})
     return sorted(owner_rows, key=lambda r: json.dumps(r, sort_keys=True)), sorted(member_rows, key=lambda r: json.dumps(r, sort_keys=True))
 
 
