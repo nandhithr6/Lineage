@@ -1,0 +1,21 @@
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: lineage-falkordb
+    ports:
+      - "127.0.0.1:${FALKORDB_PORT:-6379}:6379"   # Redis protocol (Python client)
+      - "127.0.0.1:3000:3000"                      # FalkorDB browser UI
+    environment:
+      - REDIS_ARGS=--requirepass ${FALKORDB_PASSWORD:?set FALKORDB_PASSWORD in .env} --appendonly yes
+      - REDISCLI_AUTH=${FALKORDB_PASSWORD}   # lets redis-cli (healthcheck) authenticate
+    volumes:
+      - falkordb_data:/var/lib/falkordb/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  falkordb_data:

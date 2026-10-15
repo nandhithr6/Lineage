@@ -1,0 +1,72 @@
+from lineage.detect.drift import HistoryRow, evaluate_claim
+
+
+def hist(*spans):
+    """spans: (stage, first_minor, last_minor) -> one HistoryRow per release; overlapping releases get overlap=True."""
+    rows = []
+    for stage, a, b in spans:
+        rows += [HistoryRow(100 + m, f"1.{m}", stage) for m in range(a, b + 1)]
+    return rows
+
+
+SEED = hist(("alpha", 7, 9), ("beta", 10, 24), ("stable", 25, 26))  # LocalStorageCapacityIsolation, removed after 1.26
+
+
+def test_seed_style_positive_is_a_stale_stage_finding():
+    ev = evaluate_claim("c1", "alpha", "1.8", "LocalStorageCapacityIsolation", True, SEED)
+    assert ev and ev.kind == "stale_stage" and ev.severity == "finding"
+    assert ev.actual_stages == ["stable"] and ev.release == "1.26" and ev.gate_removed
+    assert ev.evidence == [{"gate": "LocalStorageCapacityIsolation", "release": "1.26", "stage": "stable"}]
+    assert ev.key == "stale_stage|c1|LocalStorageCapacityIsolation|1.26|alpha"
+
+
+def test_correct_label_stays_silent():
+    assert evaluate_claim("c2", "stable", "1.25", "LocalStorageCapacityIsolation", True, SEED) is None
+
+
+def test_overlap_either_stage_counts_as_correct():
+    both = [HistoryRow(130, "1.30", "beta", True), HistoryRow(130, "1.30", "stable", True)]
+    assert evaluate_claim("c3", "beta", None, "PodHostIPs", False, both) is None
+    assert evaluate_claim("c4", "stable", None, "PodHostIPs", False, both) is None
+    assert evaluate_claim("c5", "alpha", None, "PodHostIPs", False, both).kind == "stale_stage"
+
+
+def test_removed_after_alpha_is_a_review_item_not_a_finding():
+    ev = evaluate_claim("c6", "alpha", "1.11", "SomeDroppedGate", True, hist(("alpha", 11, 14)))
+    assert ev and ev.kind == "documents_removed_feature" and ev.severity == "review"
+
+
+def test_removed_after_deprecated_is_a_review_item():
+    ev = evaluate_claim("c7", "beta", None, "Gone", True, hist(("beta", 5, 8), ("deprecated", 9, 12)))
+    assert ev and ev.severity == "review"
+
+
+def test_wrong_since_version_is_minor():
+    ev = evaluate_claim("c9", "alpha", "1.8", "G", False, hist(("alpha", 7, 37)))
+    assert ev and ev.kind == "wrong_since_version" and ev.severity == "minor" and ev.entered_version == "1.7"
+
+
+def test_no_version_in_label_cannot_raise_a_since_finding():
+    assert evaluate_claim("c10", "alpha", None, "G", False, hist(("alpha", 7, 37))) is None
+
+
+def test_live_gate_stale_stage():
+    ev = evaluate_claim("c11", "beta", "1.20", "G", False, hist(("beta", 20, 30), ("stable", 31, 37)))
+    assert ev and ev.kind == "stale_stage" and ev.release == "1.37" and not ev.gate_removed
+
+
+from lineage.detect.drift import judge_claim
+
+
+def test_runner_up_that_fits_exactly_turns_a_finding_into_a_review_item():
+    history = {"GRPCContainerProbeTLS": hist(("alpha", 37, 37)), "GRPCContainerProbe": hist(("beta", 24, 26), ("stable", 27, 37))}
+    ranked = [(0.955, "GRPCContainerProbeTLS", False, "linker"), (0.817, "GRPCContainerProbe", False, "linker")]
+    ev = judge_claim("c1", "stable", "1.27", ranked, history)
+    assert ev and ev.kind == "link_ambiguous" and ev.severity == "review"
+
+
+def test_weak_runner_up_does_not_veto_a_real_finding():
+    history = {"A": hist(("beta", 20, 30), ("stable", 31, 37)), "B": hist(("beta", 20, 37))}
+    ranked = [(0.93, "A", False, "linker"), (0.35, "B", False, "linker")]  # B fits (beta) but is below 0.5
+    ev = judge_claim("c2", "beta", "1.20", ranked, history)
+    assert ev and ev.kind == "stale_stage"

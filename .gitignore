@@ -1,0 +1,26 @@
+# Python env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Raw data (clones + GitHub API cache); only snapshot/ is committed
+data/raw/
+
+# Frontend
+web/node_modules/
+web/dist/
+
+# FalkorDB local volume
+falkordb-data/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
