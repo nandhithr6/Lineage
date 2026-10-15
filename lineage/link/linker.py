@@ -21,6 +21,7 @@ from pathlib import Path
 
 from lineage.ingest.docs_labels import SNAPSHOT as LABELS_SNAPSHOT
 from lineage.ingest.gates import SNAPSHOT as GATES_SNAPSHOT
+from lineage.ingest.gates import version_key
 from lineage.ingest.keps import SNAPSHOT as KEPS_SNAPSHOT
 
 log = logging.getLogger(__name__)
@@ -90,6 +91,8 @@ class Linker:
     def __init__(self, gates: list[dict], params: dict | None = None, keps: list[dict] | None = None):
         self.p = {**PARAMS, **(params or {})}
         self.gates = gates
+        # (stage, version) of each gate's FIRST stage: a label cannot describe a feature before its gate existed (see link_detailed)
+        self.first_stage = {g["name"]: (g["stages"][0]["stage"], g["stages"][0]["from_version"]) for g in gates if g.get("stages")}
         self.gate_tokens = {g["name"]: camel_words(g["name"]) * 2 + tokens(g["description"]) for g in gates}
         self.link_gates: dict[str, set[str]] = {}
         for g in gates:
@@ -139,7 +142,21 @@ class Linker:
         return best
 
     def link(self, section_text: str, section_links: list[str], heading: str | None = None,
-             page_links: list[str] | None = None) -> list[Candidate]:
+             page_links: list[str] | None = None, since: str | None = None) -> list[Candidate]:
+        return self.link_detailed(section_text, section_links, heading, page_links, since)[0]
+
+    def link_detailed(self, section_text: str, section_links: list[str], heading: str | None = None,
+                      page_links: list[str] | None = None, since: str | None = None) -> tuple[list[Candidate], list[dict]]:
+        """Score every gate for one label. Returns (candidates, eliminated).
+
+        Elimination rule (a deliberate design choice, README "Linking"): if the label says "since vX" and a candidate gate's FIRST stage starts
+        after X, the label cannot be describing that gate, so the candidate is dropped. It is used ONLY to remove candidates, never to raise a score
+        (survivors keep exactly the score they had), and every removal is returned with its reason so it shows up in the evidence. The label's stage is
+        never used, only the version, and only as a veto. Known limit: a gate can be added long after its feature shipped (e.g. KubeProxyIPVS, a gate
+        introduced at 1.37 for a feature the docs date to 1.35), so the rule can remove a right gate; measured in eval/results/drift_report.md.
+        """
+        since_key = version_key(since.lstrip("v")) if since else None
+        eliminated: list[dict] = []
         text_vec = self._vec(tokens(section_text) + tokens(heading or "") * (self.p["heading_weight"] - 1))
         links = {norm_link(link) for link in section_links}
         page_set = {norm_link(link) for link in (page_links or [])} - links
@@ -180,15 +197,27 @@ class Linker:
                 if len({FAMILY[k] for k in signals}) < 2:
                     conf = min(conf, CONFIDENT - 0.01)  # one kind of evidence alone is never "confident"
                 if conf >= KEEP:
+                    first = self.first_stage.get(name)
+                    if since_key and first and version_key(first[1]) > since_key:
+                        eliminated.append({"gate": name, "would_be_confidence": round(conf, 3), "first_stage": first[0], "first_version": first[1],
+                                           "claimed_since": since.lstrip("v"),
+                                           "reason": f"eliminated {name}: its first stage ({first[0]}, {first[1]}) is after the claimed since-version {since.lstrip('v')}"})
+                        continue
                     out.append(Candidate(name, round(conf, 3), {k: round(v, 3) for k, v in signals.items()}, via))
         out.sort(key=lambda c: -c.confidence)
         out = out[:MAX_CANDIDATES]
         if out and out[0].confidence >= CONFIDENT:
             close = [c for c in out if out[0].confidence - c.confidence < self.p["ambiguity_gap"]]
             if len(close) > 1:  # a near-tie is not a confident link for either candidate
-                capped = {c.gate: Candidate(c.gate, round(CONFIDENT - 0.01, 3), {**c.signals, "ambiguous_with": [x.gate for x in close if x is not c]}, c.via) for c in close}
-                out = [capped.get(c.gate, c) for c in out]
-        return out
+                cap = round(CONFIDENT - 0.01, 3)
+                tied = {c.gate for c in close}
+                # Everything ranked below the tie is capped as well: a weaker candidate must never look "confident"
+                # just because the better ones were demoted.
+                out = [Candidate(c.gate, cap if c.gate in tied else min(c.confidence, cap),
+                                 {**c.signals, **({"ambiguous_with": [x.gate for x in close if x is not c]} if c.gate in tied else {})}, c.via)
+                       for c in out]
+        eliminated.sort(key=lambda e: -e["would_be_confidence"])
+        return out, eliminated[:MAX_CANDIDATES]
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -201,8 +230,8 @@ def link_all(labels: list[dict], gates: list[dict], params: dict | None = None, 
     for lab in labels:
         if lab["kind"] != "hardcoded":
             continue
-        cands = linker.link(lab["section_text"], lab["doc_links"], lab["heading"], lab["page_doc_links"])
-        rows.append({"claim_id": lab["id"], "candidates": [asdict(c) for c in cands]})
+        cands, eliminated = linker.link_detailed(lab["section_text"], lab["doc_links"], lab["heading"], lab["page_doc_links"], lab["for_k8s_version"])
+        rows.append({"claim_id": lab["id"], "candidates": [asdict(c) for c in cands], "eliminated": eliminated})
     return rows
 
 
