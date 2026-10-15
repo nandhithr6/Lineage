@@ -25,6 +25,7 @@ from lineage.config import load_settings
 from lineage.graph.client import connect
 from lineage.ingest.docs_labels import SNAPSHOT as LABELS_SNAPSHOT
 from lineage.ingest.gates import SNAPSHOT as GATES_SNAPSHOT
+from lineage.ingest.github_prs import SNAPSHOT as PRS_SNAPSHOT
 from lineage.ingest.keps import SNAPSHOT as KEPS_SNAPSHOT
 from lineage.ingest.sigs import SNAPSHOT as SIGS_SNAPSHOT
 from lineage.link.linker import LINKS_SNAPSHOT
@@ -47,6 +48,7 @@ KEYS = [
     ("Person", "handle"),
     ("CodePath", "id"),
     ("Team", "id"),
+    ("PR", "number"),
 ]
 
 
@@ -140,7 +142,7 @@ Q_ABOUT_LINKER = """
 UNWIND $rows AS r
 MATCH (c:Claim {id: r.claim_id}), (g:FeatureGate {name: r.gate})
 MERGE (c)-[a:ABOUT]->(g)
-SET a.method = 'linker', a.link_confidence = r.confidence, a.signals = r.signals,
+SET a.method = 'linker', a.link_confidence = r.confidence, a.signals = r.signals, a.eliminated = r.eliminated,
     a.source_url = r.source_url, a.extracted_by = 'inferred', a.confidence = r.confidence,
     a.recorded_at = coalesce(a.recorded_at, $now)
 """
@@ -148,9 +150,13 @@ SET a.method = 'linker', a.link_confidence = r.confidence, a.signals = r.signals
 
 def load_links(g: Graph, links_path: Path, claims_source: dict[str, str], now: str) -> int:
     """ABOUT edges from the linker: up to 3 candidate gates per hard-coded claim, each with its own confidence."""
+    # Linker candidates are derived hypotheses, regenerated on every run: drop the previous run's edges so a candidate the
+    # linker no longer produces cannot linger (MERGE alone never removes). Hand-verified (manual) and gate_name links stay.
+    g.query("MATCH ()-[a:ABOUT {method: 'linker'}]->() DELETE a")
     rows = [
         {"claim_id": link["claim_id"], "gate": c["gate"], "confidence": c["confidence"],
-         "signals": json.dumps(c["signals"], sort_keys=True), "source_url": claims_source[link["claim_id"]]}
+         "signals": json.dumps(c["signals"], sort_keys=True), "source_url": claims_source[link["claim_id"]],
+         "eliminated": json.dumps(link.get("eliminated", []))}
         for link in read_jsonl(links_path) for c in link["candidates"]
     ]
     run(g, Q_ABOUT_LINKER, rows, now)
@@ -165,7 +171,7 @@ _EDGE_PROV = """SET e.source_url = r.source_url, e.extracted_by = r.extracted_by
 
 def edge_query(rel: str, src: tuple[str, str], dst: tuple[str, str], extra: str = "") -> str:
     assert rel in {"OWNED_BY", "PARTICIPATES", "INTRODUCES", "REPLACES", "SEE_ALSO", "SUPERSEDED_BY", "AUTHORED",
-                   "APPROVED_KEP", "CHAIRS", "TECH_LEAD_OF", "EMERITUS_LEAD_OF", "OWNS", "CHILD_OF", "IN_PATH"}, rel
+                   "APPROVED_KEP", "CHAIRS", "TECH_LEAD_OF", "EMERITUS_LEAD_OF", "OWNS", "CHILD_OF", "IN_PATH", "REVIEWED", "APPROVED", "TOUCHES"}, rel
     return (f"UNWIND $rows AS r MATCH (a:{src[0]} {{{src[1]}: r.src}}), (b:{dst[0]} {{{dst[1]}: r.dst}}) "
             f"MERGE (a)-[e:{rel}]->(b) {extra} {_EDGE_PROV}")
 
@@ -322,6 +328,81 @@ def load_owners(g: Graph, snap: Path, labels: list[dict], now: str) -> None:
              len(rows), len(teams), len(edges), len(members), len(owns))
 
 
+BOT_MARKERS = ("[bot]", "-bot", "robot", "k8s-ci", "dependabot")  # automation accounts are not people; excluded from reviewer/expert data
+
+
+def is_bot(login: str | None) -> bool:
+    return not login or any(m in login.lower() for m in BOT_MARKERS)
+
+
+def nearest_codepath(directory: str, known: set[str]) -> str | None:
+    """Deepest known kubernetes folder that contains `directory`, never the repository root (everything is under the root, so it says nothing)."""
+    parts = [p for p in directory.split("/") if p]
+    for i in range(len(parts), 0, -1):
+        cand = "/".join(parts[:i])
+        if cand in known:
+            return cand
+    return None
+
+
+CROSS_CUTTING = 10  # a PR touching this many distinct code paths (3% of them) is a repo-wide change, not evidence of expertise in any one folder
+
+
+def is_cherry_pick(title: str, base_ref: str | None = None) -> bool:
+    """A backport to a release branch (base branch is not master/main; or, if the branch is unknown, the 'Automated cherry pick of #123' title).
+    Their approvals are release-process work, not domain expertise."""
+    if base_ref:
+        return base_ref not in ("master", "main")
+    return title.lower().startswith(("automated cherry pick of", "cherry pick of", "[release-"))
+
+
+Q_PR = """
+UNWIND $rows AS r
+MERGE (p:PR {number: r.number})
+SET p.title = r.title, p.url = r.url, p.merged_at = r.merged_at, p.created_at = r.created_at, p.sigs = r.sigs,
+    p.files_total = r.files_total, p.files_truncated = r.files_truncated, p.reviews_truncated = r.reviews_truncated,
+    p.cherry_pick = r.cherry_pick, p.paths_touched = r.paths_touched, p.cross_cutting = r.cross_cutting
+"""
+
+
+def load_prs(g: Graph, prs: list[dict], known_dirs: set[str], now: str) -> dict[str, int]:
+    """PR nodes; Person-AUTHORED/REVIEWED/APPROVED->PR (per person and PR: latest date and review count); PR-TOUCHES->nearest CodePath."""
+    rows = []
+    for p in prs:
+        n = len({nearest_codepath(x, known_dirs) for x in p["dirs"]} - {None})
+        rows.append({**p, "cherry_pick": is_cherry_pick(p["title"], p.get("base_ref")), "paths_touched": n, "cross_cutting": n >= CROSS_CUTTING or bool(p["files_truncated"])})
+    run(g, Q_PR, rows, now)
+    people = {p["author"] for p in prs if not is_bot(p["author"])} | {r["login"] for p in prs for r in p["reviews"] if not is_bot(r["login"])}
+    run(g, Q_PERSON, [{"handle": h, "name": None} for h in sorted(people)], now)
+    authored, reviewed, approved, touches = [], [], [], []
+    for p in prs:
+        if not is_bot(p["author"]):
+            authored.append({"src": p["author"], "dst": p["number"], "source_url": p["url"], "at": p["created_at"], "count": 1})
+        per: dict[str, dict] = {}
+        for r in p["reviews"]:
+            if is_bot(r["login"]) or r["login"] == p["author"]:  # reviewing your own PR is not review activity
+                continue
+            e = per.setdefault(r["login"], {"last": r["at"], "n": 0, "approved": None})
+            e["n"] += 1
+            e["last"] = max(e["last"] or "", r["at"] or "")
+            if r["state"] == "APPROVED":
+                e["approved"] = max(e["approved"] or "", r["at"] or "")
+        for login, e in per.items():
+            row = {"src": login, "dst": p["number"], "source_url": p["url"], "at": e["last"], "count": e["n"]}
+            reviewed.append(row)
+            if e["approved"]:
+                approved.append({**row, "at": e["approved"]})
+        for d in {nearest_codepath(x, known_dirs) for x in p["dirs"]} - {None}:
+            touches.append({"src": p["number"], "dst": f"kubernetes:{d}", "source_url": p["url"]})
+    extra = "SET e.at = r.at, e.count = r.count"
+    run(g, edge_query("AUTHORED", ("Person", "handle"), ("PR", "number"), extra), prov(authored), now)
+    run(g, edge_query("REVIEWED", ("Person", "handle"), ("PR", "number"), extra), prov(reviewed), now)
+    run(g, edge_query("APPROVED", ("Person", "handle"), ("PR", "number"), extra), prov(approved), now)
+    run(g, edge_query("TOUCHES", ("PR", "number"), ("CodePath", "id")), prov(touches), now)
+    log.info("PRs: %d, people: %d, authored %d, reviewed %d, approved %d, touches %d", len(prs), len(people), len(authored), len(reviewed), len(approved), len(touches))
+    return {"prs": len(prs), "authored": len(authored), "reviewed": len(reviewed), "approved": len(approved), "touches": len(touches)}
+
+
 def load_gates(g: Graph, gates: list[Gate], now: str) -> None:
     rows = [row for gate in gates for row in expand_to_releases(gate)]
     releases = sorted({r["release_num"]: r["release"] for r in rows}.items())
@@ -365,16 +446,17 @@ def counts(g: Graph) -> dict[str, int]:
     out: dict[str, int] = {}
     for label in ["Release", "FeatureGate", "DocPage", "DocSection", "Claim"]:
         out[label] = g.ro_query(f"MATCH (n:{label}) RETURN count(n)").result_set[0][0]
-    for label in ["KEP", "SIG", "Person", "Finding", "CodePath", "Team"]:
+    for label in ["KEP", "SIG", "Person", "CodePath", "Team", "PR"]:
         out[label] = g.ro_query(f"MATCH (n:{label}) RETURN count(n)").result_set[0][0]
+    out["Finding"] = g.ro_query("MATCH (n:Finding {active: true}) RETURN count(n)").result_set[0][0]  # inactive ones are history
     for rel in ["STAGE_IN", "HAS_SECTION", "HAS_CLAIM", "ABOUT", "OWNED_BY", "PARTICIPATES", "INTRODUCES", "REPLACES",
                 "SEE_ALSO", "SUPERSEDED_BY", "AUTHORED", "APPROVED_KEP", "CHAIRS", "TECH_LEAD_OF", "EMERITUS_LEAD_OF",
-                "CHILD_OF", "IN_PATH", "OWNS", "APPROVER_OF", "REVIEWER_OF", "EMERITUS_APPROVER_OF", "MEMBER_OF"]:
+                "CHILD_OF", "IN_PATH", "OWNS", "APPROVER_OF", "REVIEWER_OF", "EMERITUS_APPROVER_OF", "MEMBER_OF", "REVIEWED", "APPROVED", "TOUCHES"]:
         out[rel] = g.ro_query(f"MATCH ()-[e:{rel}]->() RETURN count(e)").result_set[0][0]
     return out
 
 
-def load_all(g: Graph, gates_path: Path = GATES_SNAPSHOT, labels_path: Path = LABELS_SNAPSHOT) -> dict[str, int]:
+def load_all(g: Graph, gates_path: Path = GATES_SNAPSHOT, labels_path: Path = LABELS_SNAPSHOT, include_prs: bool = True) -> dict[str, int]:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     ensure_schema(g)
     load_gates(g, [gate_from_record(r) for r in read_jsonl(gates_path)], now)
@@ -388,6 +470,9 @@ def load_all(g: Graph, gates_path: Path = GATES_SNAPSHOT, labels_path: Path = LA
         load_links(g, LINKS_SNAPSHOT, {x["id"]: x["source_url"] for x in labels}, now)
     if (Path("snapshot") / "owners_edges.jsonl").exists():
         load_owners(g, Path("snapshot"), labels, now)
+    if include_prs and PRS_SNAPSHOT.exists():
+        known = {c["dir"] for c in read_jsonl(Path("snapshot") / "codepaths.jsonl") if c["repo"] == "kubernetes"}
+        load_prs(g, read_jsonl(PRS_SNAPSHOT), known, now)
     if VERIFIED_LINKS.exists():
         load_verified(g, VERIFIED_LINKS, {x["id"]: x["source_url"] for x in labels}, now)
     return counts(g)

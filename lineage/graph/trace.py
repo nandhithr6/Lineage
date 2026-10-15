@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from collections import defaultdict
 
 from falkordb import Graph
 
-from lineage.graph.queries import LATEST, effective_owners
+from lineage.graph.queries import LATEST, effective_owners, experts_for, official_vs_actual
 
 Q_FINDINGS = """
 MATCH (f:Finding {active: true})-[:FOR_CLAIM]->(c:Claim)<-[:HAS_CLAIM]-(s:DocSection)<-[:HAS_SECTION]-(p:DocPage)
@@ -25,7 +26,7 @@ SEVERITY_ORDER = {"finding": 0, "minor": 1, "review": 2}
 Q_FINDING_GATE = "MATCH (f:Finding {key: $k})-[:FOR_GATE]->(g:FeatureGate), (f)-[:AS_OF]->(r:Release) RETURN g.name, g.removed, g.source_url, r.version"
 Q_LINK = """
 MATCH (c:Claim {id: $c})-[a:ABOUT]->(g:FeatureGate {name: $g})
-RETURN a.method, a.link_confidence, a.linker_confidence, a.signals, a.verified_by, a.verified_on, a.reason, a.source_url
+RETURN a.method, a.link_confidence, a.linker_confidence, a.signals, a.verified_by, a.verified_on, a.reason, a.source_url, a.eliminated
 """
 Q_HISTORY = "MATCH (g:FeatureGate {name: $g})-[e:STAGE_IN]->(r:Release) RETURN r.num, r.version, e.stage, e.overlap, e.source_url ORDER BY r.num"
 Q_KEPS = """
@@ -70,13 +71,13 @@ def _short(items: list[str], n: int = 3) -> str:
     return ", ".join(items[:n]) + (f" (+{len(items) - n} more)" if len(items) > n else "")
 
 
-def suggest_reviewers(g: Graph, page_path: str, sig_id: str | None, kep_id: str | None, as_of: int = LATEST) -> list[dict]:
+def suggest_reviewers(g: Graph, page_path: str, sig_id: str | None, kep_id: str | None, as_of: int = LATEST, today: datetime | None = None) -> list[dict]:
     """Docs approvers + feature-team code approvers + design-decision approvers + team leads, each with reasons.
 
     A person scores once per CATEGORY (docs approver 1.0, code approver 1.0, KEP approver 0.8, SIG lead 0.5), so holding the
     same role through several paths or teams does not inflate the ranking. Emeritus approvers are never suggested.
     """
-    WEIGHT = {"docs": 1.0, "code": 1.0, "kep": 0.8, "lead": 0.5}
+    WEIGHT = {"docs": 1.0, "code": 1.0, "kep": 0.8, "active": 0.7, "lead": 0.5}
     cats: dict[str, dict[str, dict]] = defaultdict(dict)  # handle -> category -> {paths, teams, url}
 
     def add(handle: str, cat: str, path: str | None, team: str | None, url: str | None) -> None:
@@ -94,6 +95,24 @@ def suggest_reviewers(g: Graph, page_path: str, sig_id: str | None, kep_id: str 
             for r in effective_owners(g, "kubernetes", path, as_of):
                 if r["role"] == "APPROVER_OF" and r["declared_at"] == path:
                     add(r["handle"], "code", path, r["via_team"], r["source_url"])
+        # Real activity (PR data, when loaded): people who recently review under the team's code paths; listed approvers who have gone quiet are dropped.
+        inactive: set[str] = set()
+        for _, path in g.ro_query(Q_SIG_PATHS, {"s": sig_id}).result_set:
+            ex = experts_for(g, "kubernetes", path, today=today, limit=8)
+            if not ex:
+                continue
+            v = official_vs_actual(g, "kubernetes", path, today=today)
+            inactive |= set(v["inactive_approvers"]) - set(v["active_approvers"])
+            now = today or datetime.now(timezone.utc)
+            for e in ex:
+                if (now.date() - datetime.fromisoformat(e["last_active"]).date()).days > 365:
+                    continue  # reviewed here once, long ago: not "active"
+                add(e["handle"], "active", f"{e['prs_reviewed']} recent PRs under {path} (last {e['last_active']})", None, e["examples"][0]["url"])
+        for h in inactive:
+            if h in cats and "active" not in cats[h]:
+                cats[h].pop("code", None)  # listed in OWNERS but no activity in 12 months: not suggested as a domain expert
+                if not cats[h]:
+                    del cats[h]
         for handle, rel, url in g.ro_query(Q_SIG_LEADERS, {"s": sig_id}).result_set:
             add(handle, "lead", None, None, url)
             cats[handle]["lead"]["role"] = "chair" if rel == "CHAIRS" else "tech lead"
@@ -108,6 +127,7 @@ def suggest_reviewers(g: Graph, page_path: str, sig_id: str | None, kep_id: str 
             text = {"docs": f"approves docs under {_short(e['paths'])}{via}",
                     "code": f"approves code in {_short(e['paths'], 2)} ({sig_id}){via}",
                     "kep": f"approved the design decision {kep_id.split('/')[1] if kep_id else ''}",
+                    "active": f"actively reviews: {_short(e['paths'], 2)}",
                     "lead": f"{e.get('role', 'lead')} of {sig_id}"}[cat]
             reasons.append({"reason": text, "source_url": e["url"], "category": cat})
         out.append({"handle": handle, "score": round(sum(WEIGHT[c] for c in by_cat), 2), "reasons": reasons})
@@ -142,10 +162,11 @@ def build_trace(g: Graph, query: str | None, finding_key: str | None = None) -> 
     link = g.ro_query(Q_LINK, {"c": claim_id, "g": gate}).result_set
     link_eid = None
     if link:
-        method, conf, linker_conf, signals, vby, von, reason, lurl = link[0]
+        method, conf, linker_conf, signals, vby, von, reason, lurl, elim = link[0]
         link_eid = add("edge", "ABOUT", f"Claim:{claim_id}", f"FeatureGate:{gate}",
                        {"method": method, "link_confidence": conf, "linker_confidence": linker_conf,
-                        "signals": json.loads(signals) if signals else None, "verified_by": vby, "verified_on": von, "reason": reason}, lurl)
+                        "signals": json.loads(signals) if signals else None, "verified_by": vby, "verified_on": von, "reason": reason,
+                        "eliminated": json.loads(elim) if elim else []}, lurl)
     history = stage_ranges(g.ro_query(Q_HISTORY, {"g": gate}).result_set)
     hist_eids = [add("edge", "STAGE_IN", f"FeatureGate:{gate}", f"Release:{h['from']}..{h['to']}",
                      {"stage": h["stage"], "from": h["from"], "to": h["to"], "overlap": h["overlap"]}, h["source_url"]) for h in history]
@@ -182,7 +203,7 @@ def build_trace(g: Graph, query: str | None, finding_key: str | None = None) -> 
                   "source_url": claim_url, "evidence_id": claim_eid},
         "link": ({"gate": gate, "method": link[0][0], "link_confidence": link[0][1], "linker_confidence": link[0][2],
                   "signals": json.loads(link[0][3]) if link[0][3] else None, "verified_by": link[0][4], "verified_on": link[0][5],
-                  "reason": link[0][6], "source_url": link[0][7], "evidence_id": link_eid} if link else None),
+                  "reason": link[0][6], "source_url": link[0][7], "eliminated": json.loads(link[0][8]) if link[0][8] else [], "evidence_id": link_eid} if link else None),
         "gate": {"name": gate, "removed": bool(gate_removed), "source_url": gate_url, "history": history, "history_evidence": hist_eids},
         "kep": ({**primary, "evidence_id": kep_eid, "sig_evidence_id": sig_eid, "others": keps[1:]} if primary else None),
         "reviewers": [{**r, "evidence_id": e} for r, e in zip(reviewers, reviewer_eids)],

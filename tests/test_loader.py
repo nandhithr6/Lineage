@@ -1,3 +1,4 @@
+import json
 import pytest
 
 from lineage.graph.client import connect
@@ -17,7 +18,10 @@ def test_batches():
 
 
 @pytest.fixture
-def graph():
+def graph(monkeypatch, tmp_path):
+    # The real PR snapshot (thousands of PRs) must not leak into unit tests: tests that need PRs load a small synthetic set themselves.
+    from lineage.graph import loader
+    monkeypatch.setattr(loader, "PRS_SNAPSHOT", tmp_path / "no-prs-in-unit-tests.jsonl")
     try:
         db = connect()
         db.connection.ping()
@@ -57,7 +61,14 @@ def test_seed_finding_end_to_end(graph):
     assert rows == [[1, "LocalStorageCapacityIsolation", "1.26"]]
     edge = graph.ro_query("MATCH (:Claim {id:$c})-[a:ABOUT]->(:FeatureGate {name:'LocalStorageCapacityIsolation'}) "
                           "RETURN a.method, a.link_confidence, a.linker_confidence, a.verified_by", {"c": seed[0].claim_id}).result_set
-    assert edge[0][0] == "manual" and edge[0][1] == 1.0 and edge[0][2] is not None and edge[0][2] < 0.8
+    assert edge[0][0] == "manual" and edge[0][1] == 1.0
+    assert edge[0][2] is not None and edge[0][2] >= 0.8  # the AUTOMATIC linker alone now picks the seed gate with confidence (sibling eliminated)
+    elim = json.loads(graph.ro_query("MATCH (:Claim {id:$c})-[a:ABOUT]->(:FeatureGate {name:'LocalStorageCapacityIsolation'}) RETURN a.eliminated", {"c": seed[0].claim_id}).result_set[0][0])
+    assert any(e["gate"] == "LocalStorageCapacityIsolationFSQuotaMonitoring" and e["first_version"] == "1.15" for e in elim)
+    # Policy consequence (README): without the hand verification the link is automatic but NOT anchored, so the seed would be "possible drift", not a finding.
+    graph.query("MATCH ()-[a:ABOUT {method:'manual'}]->() SET a.method = 'linker'")
+    again = next(r for r in run_detector(graph)[0] if r.gate == "LocalStorageCapacityIsolation")
+    assert again.kind == "possible_drift" and again.severity == "review"
 
 
 def test_effective_owners_walk_up_and_time_travel(graph):
@@ -105,3 +116,26 @@ def test_hero_says_insufficient_evidence_when_nothing_matches(graph):
     load_all(graph)
     out = render(build_trace(graph, "no-such-page-anywhere"))
     assert out.startswith("INSUFFICIENT EVIDENCE") and "nothing is guessed" in out
+
+
+def test_stale_linker_edges_do_not_survive_a_reload(graph):
+    """A candidate the linker no longer produces must disappear (MERGE alone would leave it behind); manual links stay."""
+    load_all(graph)
+    n = graph.ro_query("MATCH ()-[a:ABOUT {method:'linker'}]->() RETURN count(a)").result_set[0][0]
+    graph.query("MATCH (c:Claim {kind:'hardcoded'}), (g:FeatureGate {name:'Sysctls'}) WITH c, g LIMIT 1 "
+                "MERGE (c)-[a:ABOUT]->(g) SET a.method = 'linker', a.link_confidence = 0.99")  # a leftover from an older linker version
+    assert graph.ro_query("MATCH ()-[a:ABOUT {method:'linker'}]->() RETURN count(a)").result_set[0][0] == n + 1
+    load_all(graph)
+    assert graph.ro_query("MATCH ()-[a:ABOUT {method:'linker'}]->() RETURN count(a)").result_set[0][0] == n
+    assert graph.ro_query("MATCH ()-[a:ABOUT {method:'manual'}]->() RETURN count(a)").result_set[0][0] == 1
+
+
+def test_demo_queries_are_small_and_non_empty(graph):
+    """Every focused query for the FalkorDB browser returns something readable (not empty, not a hairball)."""
+    from lineage.detect.drift import run_detector, write_findings
+    from lineage.graph.demo_queries import check, export
+
+    load_all(graph)
+    write_findings(graph, run_detector(graph)[0])
+    assert check(graph, quiet=True) == 0
+    assert "MATCH" in export() and "hairball" in export()

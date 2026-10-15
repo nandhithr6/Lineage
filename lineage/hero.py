@@ -37,9 +37,15 @@ def render(b: dict) -> str:
                else "inferred by the linker")
         w(f"   {gate['name']}   confidence {link['link_confidence']} ({link['method']}; {how})")
         if link["method"] == "manual":
-            w(f"   linker alone scored {link['linker_confidence']} (near-tie with a sibling gate), reason: {textwrap.shorten(str(link['reason']), 230)}")
+            lc = link["linker_confidence"]
+            if lc is not None and lc >= 0.8:
+                w(f"   the automatic linker independently chose the same gate on its own (confidence {lc}); the hand verification is kept as an audit backup")
+            else:
+                w(f"   linker alone scored {lc}; reason for the hand verification: {textwrap.shorten(str(link['reason']), 230)}")
         elif link["signals"]:
-            w("   evidence: " + ", ".join(f"{k}={v}" for k, v in link["signals"].items()))
+            w("   evidence: " + ", ".join(f"{k}={v}" for k, v in link["signals"].items() if not isinstance(v, list)))
+        for e in link.get("eliminated") or []:
+            w(f"   ruled out: {e['reason']}")
         w(src(b, link["evidence_id"]).lstrip("\n"))
     else:
         w("   insufficient evidence: no ABOUT link recorded for this claim")
