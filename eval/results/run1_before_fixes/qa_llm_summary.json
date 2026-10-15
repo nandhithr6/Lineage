@@ -1,0 +1,90 @@
+{
+ "status": "DRAFT gold questions",
+ "model": "gemini-3.1-flash-lite",
+ "provider": "gemini only (no fallback)",
+ "systems": [
+  "lineage",
+  "rag_tfidf"
+ ],
+ "llm_stats": {
+  "gemini": {
+   "requests": 158,
+   "retries": 9,
+   "rate_limited": 0,
+   "errors": 0
+  }
+ },
+ "questions_run": 42,
+ "summary": {
+  "lineage": {
+   "n_answerable": 36,
+   "n_unanswerable": 6,
+   "accuracy": 0.861,
+   "source_correct": 0.833,
+   "refusal_quality": 0.833,
+   "errors": 0,
+   "by_category": {
+    "ownership": {
+     "n": 6,
+     "accuracy": 0.833
+    },
+    "expertise": {
+     "n": 6,
+     "accuracy": 1.0
+    },
+    "time_travel": {
+     "n": 6,
+     "accuracy": 1.0
+    },
+    "decision_lineage": {
+     "n": 6,
+     "accuracy": 0.833
+    },
+    "drift": {
+     "n": 6,
+     "accuracy": 0.667
+    },
+    "multi_hop": {
+     "n": 6,
+     "accuracy": 0.833
+    }
+   },
+   "median_latency_s": 11.9
+  },
+  "rag_tfidf": {
+   "n_answerable": 36,
+   "n_unanswerable": 6,
+   "accuracy": 0.639,
+   "source_correct": 0.5,
+   "refusal_quality": 1.0,
+   "errors": 0,
+   "by_category": {
+    "ownership": {
+     "n": 6,
+     "accuracy": 0.833
+    },
+    "expertise": {
+     "n": 6,
+     "accuracy": 0.833
+    },
+    "time_travel": {
+     "n": 6,
+     "accuracy": 0.667
+    },
+    "decision_lineage": {
+     "n": 6,
+     "accuracy": 1.0
+    },
+    "drift": {
+     "n": 6,
+     "accuracy": 0.5
+    },
+    "multi_hop": {
+     "n": 6,
+     "accuracy": 0.0
+    }
+   },
+   "median_latency_s": 4.47
+  }
+ }
+}

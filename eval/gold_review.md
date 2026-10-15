@@ -1,0 +1,147 @@
+# Gold questions: DRAFT for human verification
+
+Answers were computed from the raw snapshot files. **Check each one against its source link before it is used in any result.** Tick the box when verified.
+
+- [ ] **own1** (ownership): Who are the individual approvers, not teams, listed in the OWNERS file of pkg/controller/job in kubernetes/kubernetes today?
+  - expected: mimowo (the team alias sig-apps-approvers is also listed)
+  - source: https://github.com/kubernetes/kubernetes/blob/cbfc0564b409b82c6ec0cf76e2d15860dd13b31b/pkg/controller/job/OWNERS
+- [ ] **own2** (ownership): Which team alias approves changes under pkg/volume in kubernetes/kubernetes?
+  - expected: sig-storage-approvers
+  - source: https://github.com/kubernetes/kubernetes/blob/cbfc0564b409b82c6ec0cf76e2d15860dd13b31b/pkg/volume/OWNERS
+- [ ] **own3** (ownership): Name two people who can approve a change to the Resource Quotas page of the Kubernetes docs.
+  - expected: Any of the docs approvers, e.g. caesarsage, dipesh-rawat, divya-mohan0209, katcosgrove
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/OWNERS
+- [ ] **own4** (ownership): Who are the chairs of sig-storage?
+  - expected: gnufied, xing-yang
+  - source: https://github.com/kubernetes/community/blob/53c338ecba4a2a9240f6654cca1d6a9dac25c785/sigs.yaml
+- [ ] **own5** (ownership): Who are the tech leads of sig-node?
+  - expected: dchen1107, derekwaynecarr, mrunalp
+  - source: https://github.com/kubernetes/community/blob/53c338ecba4a2a9240f6654cca1d6a9dac25c785/sigs.yaml
+- [ ] **own6** (ownership): Who is listed as an emeritus approver in the root OWNERS file of the Kubernetes website repository?
+  - expected: stewart-yu
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/OWNERS
+- [ ] **exp1** (expertise): Who authored the design document 'Local Ephemeral Storage Capacity Isolation'?
+  - expected: jinxu97
+  - source: https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-storage/361-local-ephemeral-storage-isolation/kep.yaml
+- [ ] **exp2** (expertise): Who approved the design document 'Local Ephemeral Storage Capacity Isolation'?
+  - expected: msau42, xing-yang
+  - source: https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-storage/361-local-ephemeral-storage-isolation/kep.yaml
+- [ ] **exp3** (expertise): Who actively reviews changes to pkg/volume? Name two people.
+  - expected: two of: gnufied, jsafrane, liggitt, sergeykanzhelev, andyzhangx, msau42 (most distinct PRs reviewed in the last 12 months)
+  - source: https://github.com/kubernetes/kubernetes/pull/129664
+  - source: https://github.com/kubernetes/kubernetes/pull/134540
+  - source: https://github.com/kubernetes/kubernetes/pull/134826
+  - note: ACTUAL review activity from snapshot/prs.jsonl (not the OWNERS list). Earlier draft asked 'who should I ask about pkg/volume' with declared owners as the only accepted answer; the agent's activity-based answer was reasonable
+- [ ] **exp4** (expertise): Who can approve changes in staging/src/k8s.io/mount-utils?
+  - expected: jingxu97, jsafrane, saad-ali
+  - source: https://github.com/kubernetes/kubernetes/blob/cbfc0564b409b82c6ec0cf76e2d15860dd13b31b/staging/src/k8s.io/mount-utils/OWNERS
+- [ ] **exp5** (expertise): Who are the tech leads of sig-storage, whom I could ask about storage design?
+  - expected: jsafrane, msau42
+  - source: https://github.com/kubernetes/community/blob/53c338ecba4a2a9240f6654cca1d6a9dac25c785/sigs.yaml
+- [ ] **exp6** (expertise): Who chairs sig-node?
+  - expected: haircommander, mrunalp, sergeykanzhelev
+  - source: https://github.com/kubernetes/community/blob/53c338ecba4a2a9240f6654cca1d6a9dac25c785/sigs.yaml
+- [ ] **tt1** (time_travel): Who was the individual approver of pkg/controller/job in release 1.30?
+  - expected: alculquicondor
+  - source: https://github.com/kubernetes/kubernetes/blob/9edcffcde5595e8a5b1a35f88c421764e575afce/pkg/controller/job/OWNERS
+  - source: https://github.com/kubernetes/kubernetes/blob/cbfc0564b409b82c6ec0cf76e2d15860dd13b31b/pkg/controller/job/OWNERS
+- [ ] **tt2** (time_travel): Who was the individual approver of pkg/controller/job in release 1.32?
+  - expected: mimowo
+  - source: https://github.com/kubernetes/kubernetes/blob/cbfc0564b409b82c6ec0cf76e2d15860dd13b31b/pkg/controller/job/OWNERS
+- [ ] **tt3** (time_travel): What maturity stage was the LocalStorageCapacityIsolation feature gate in during release 1.9?
+  - expected: alpha
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/LocalStorageCapacityIsolation.md
+- [ ] **tt4** (time_travel): What maturity stage was the LocalStorageCapacityIsolation feature gate in during release 1.20?
+  - expected: beta
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/LocalStorageCapacityIsolation.md
+- [ ] **tt5** (time_travel): Who stopped being a reviewer of pkg/apis/core/v1 between releases 1.30 and 1.32?
+  - expected: ncdc
+  - source: https://github.com/kubernetes/kubernetes/blob/9edcffcde5595e8a5b1a35f88c421764e575afce/pkg/apis/core/v1/OWNERS
+  - note: ncdc is a reviewer at 1.30 and absent at 1.32 in the sampled OWNERS files
+- [ ] **tt6** (time_travel): What maturity stage was the PodHostIPs feature gate in during release 1.30?
+  - expected: beta and stable (the source lists both for 1.30)
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/PodHostIPs.md
+  - note: a release where the source lists two stages (overlap)
+- [ ] **dl1** (decision_lineage): Which design document (KEP) introduced the AnyVolumeDataSource feature gate?
+  - expected: sig-storage/1495-volume-populators
+  - source: https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-storage/1495-volume-populators/kep.yaml
+- [ ] **dl2** (decision_lineage): Which team owns the design document behind the VolumeSnapshotDataSource feature gate?
+  - expected: sig-storage
+  - source: https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-storage/177-volume-snapshot/kep.yaml
+- [ ] **dl3** (decision_lineage): Who approved the design document behind the CronJobTimeZone feature gate?
+  - expected: janetkuo
+  - source: https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-apps/3140-TimeZone-support-in-CronJob/kep.yaml
+- [ ] **dl4** (decision_lineage): In which Kubernetes release did the design document behind CronJobTimeZone reach stable?
+  - expected: v1.27
+  - source: https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-apps/3140-TimeZone-support-in-CronJob/kep.yaml
+- [ ] **dl5** (decision_lineage): Which earlier design document does the KEP sig-auth/3299-kms-v2-improvements replace?
+  - expected: sig-auth/3130-kms-observability
+  - source: https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-auth/3299-kms-v2-improvements/kep.yaml
+- [ ] **dl6** (decision_lineage): What is the status and maturity stage of the design document 'Local Ephemeral Storage Capacity Isolation'?
+  - expected: status implementable, stage stable
+  - source: https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-storage/361-local-ephemeral-storage-isolation/kep.yaml
+- [ ] **dr1** (drift): Is the 'alpha since v1.8' label in the 'Quota for local ephemeral storage' section of the Resource Quotas docs page still correct?
+  - expected: No: the gate LocalStorageCapacityIsolation became stable in 1.25 (since removed)
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/LocalStorageCapacityIsolation.md
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/concepts/policy/resource-quotas.md#L194
+  - note: link verified by hand
+- [ ] **dr2** (drift): Is the 'stable since v1.27' label in the time zones section of the CronJob docs page correct?
+  - expected: Yes: CronJobTimeZone became stable in 1.27
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/CronJobTimeZone.md
+  - note: negative control
+- [ ] **dr3** (drift): Is the 'beta since v1.24' label on the Volume Populators and Data Sources docs page still correct?
+  - expected: No: AnyVolumeDataSource is stable since 1.33
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/AnyVolumeDataSource.md
+- [ ] **dr4** (drift): Which Kubernetes docs pages have confirmed out-of-date maturity labels?
+  - expected: Resource Quotas; Volume Populators and Data Sources
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/LocalStorageCapacityIsolation.md
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/AnyVolumeDataSource.md
+  - note: answer = the 2 confirmed findings at snapshot time; review items are not findings
+- [ ] **dr5** (drift): Is the 'stable since v1.22' label in the automatic labelling section of the Namespaces docs page correct?
+  - expected: Yes: NamespaceDefaultLabelName became stable in 1.22
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/NamespaceDefaultLabelName.md
+  - note: negative control
+- [ ] **dr6** (drift): Is the 'stable since v1.25' label in the Pod OS section of the Pods docs page correct?
+  - expected: Yes: IdentifyPodOS became stable in 1.25
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/IdentifyPodOS.md
+  - note: negative control; the linker could not link this label confidently
+- [ ] **mh1** (multi_hop): Who could merge, and who could technically verify, a fix for the out-of-date label on the Resource Quotas page?
+  - expected: Docs approvers (e.g. caesarsage, dipesh-rawat, divya-mohan0209) and storage experts (msau42, xing-yang, gnufied, jsafrane)
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/OWNERS
+  - source: https://github.com/kubernetes/kubernetes/blob/cbfc0564b409b82c6ec0cf76e2d15860dd13b31b/pkg/volume/OWNERS
+- [ ] **mh2** (multi_hop): Which team owns the design document behind the feature that the Resource Quotas page labels alpha since v1.8?
+  - expected: sig-storage
+  - source: https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-storage/361-local-ephemeral-storage-isolation/kep.yaml
+- [ ] **mh3** (multi_hop): Who approved the design document behind the feature that the Volume Populators and Data Sources page labels beta?
+  - expected: thockin, saad-ali
+  - source: https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-storage/1495-volume-populators/kep.yaml
+- [ ] **mh4** (multi_hop): What is the current maturity stage of the feature gate behind the 'Volume populators and data sources' label, and since which release?
+  - expected: stable since 1.33
+  - source: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/reference/command-line-tools-reference/feature-gates/AnyVolumeDataSource.md
+- [ ] **mh5** (multi_hop): Who chairs the team that owns the design document 'Local Ephemeral Storage Capacity Isolation'?
+  - expected: gnufied, xing-yang
+  - source: https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-storage/361-local-ephemeral-storage-isolation/kep.yaml
+  - source: https://github.com/kubernetes/community/blob/53c338ecba4a2a9240f6654cca1d6a9dac25c785/sigs.yaml
+  - note: needs two hops: KEP -> owning team -> chairs; the oracle tool only covers the first
+- [ ] **mh6** (multi_hop): Which people approved the design document for the gate that the Resource Quotas page labels alpha, and are any of them also leaders of the owning team?
+  - expected: msau42 and xing-yang approved KEP 361; both lead sig-storage (tech lead and chair)
+  - source: https://github.com/kubernetes/enhancements/blob/6ebe0a94771723b3f27cb4a757f0cc22f29e38a2/keps/sig-storage/361-local-ephemeral-storage-isolation/kep.yaml
+  - source: https://github.com/kubernetes/community/blob/53c338ecba4a2a9240f6654cca1d6a9dac25c785/sigs.yaml
+- [ ] **un1** (unanswerable): Who reviewed the most pull requests in the kubernetes/website repository last year?
+  - expected: refusal expected (insufficient evidence)
+  - note: pull-request data is loaded for kubernetes/kubernetes only (sig-storage, sig-node, sig-apps labels). Earlier drafts asked about pkg/volume and then pkg/scheduler; both turned out to be answerable from the PR data, so the premise was wrong
+- [ ] **un2** (unanswerable): Who owned the Kubernetes website docs in release 1.30?
+  - expected: refusal expected (insufficient evidence)
+  - note: docs ownership is sampled at HEAD only
+- [ ] **un3** (unanswerable): Which feature gates will be removed in release 1.40?
+  - expected: refusal expected (insufficient evidence)
+  - note: the future is not in the data
+- [ ] **un4** (unanswerable): What is the email address of the chair of sig-storage?
+  - expected: refusal expected (insufficient evidence)
+  - note: emails are dropped at ingestion (personal data)
+- [ ] **un5** (unanswerable): Which docs page is most popular with readers?
+  - expected: refusal expected (insufficient evidence)
+  - note: no traffic data
+- [ ] **un6** (unanswerable): Who approved the design document behind the NoSuchGateXyz feature gate?
+  - expected: refusal expected (insufficient evidence)
+  - note: the gate does not exist
