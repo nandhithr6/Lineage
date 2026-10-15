@@ -1,0 +1,42 @@
+{
+  "snapshot_date": "2026-10-15",
+  "sources": [
+    {
+      "repo": "kubernetes/website",
+      "commit": "e91eff3b59c0bf813193202a4f193d37beb7efd7",
+      "license": "CC BY 4.0",
+      "url": "https://github.com/kubernetes/website"
+    },
+    {
+      "repo": "kubernetes/enhancements",
+      "commit": "6ebe0a94771723b3f27cb4a757f0cc22f29e38a2",
+      "license": "Apache-2.0",
+      "url": "https://github.com/kubernetes/enhancements"
+    },
+    {
+      "repo": "kubernetes/community",
+      "commit": "53c338ecba4a2a9240f6654cca1d6a9dac25c785",
+      "license": "Apache-2.0",
+      "url": "https://github.com/kubernetes/community"
+    },
+    {
+      "repo": "kubernetes/kubernetes",
+      "commit": "cbfc0564b409b82c6ec0cf76e2d15860dd13b31b",
+      "license": "Apache-2.0",
+      "url": "https://github.com/kubernetes/kubernetes"
+    }
+  ],
+  "files": {
+    "codepaths.jsonl": 142,
+    "doc_labels.jsonl": 453,
+    "gates.jsonl": 489,
+    "keps.jsonl": 648,
+    "links.jsonl": 188,
+    "owners_edges.jsonl": 501,
+    "release_dates.jsonl": 38,
+    "sigs.jsonl": 37,
+    "team_members.jsonl": 752,
+    "verified_links.jsonl": 1
+  },
+  "owners_history": "kubernetes/kubernetes sampled at tags v1.30.0..v1.37.0 and HEAD (1.38-dev); kubernetes/website at HEAD only"
+}
