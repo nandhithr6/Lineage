@@ -12,7 +12,10 @@ LINEAGE  |  Resource Quotas  (https://kubernetes.io/docs/concepts/policy/resourc
 
 3. LINKED TO FEATURE GATE
    LocalStorageCapacityIsolation   confidence 1.0 (manual; verified by hand by Nan (project owner) on 2026-10-15)
-   linker alone scored 0.79 (near-tie with a sibling gate), reason: Section is about ResourceQuota for local ephemeral storage, which belongs to the original LocalStorageCapacityIsolation feature (KEP 361). The sibling gate LocalStorageCapacityIsolationFSQuotaMonitoring covers filesystem [...]
+   the automatic linker independently chose the same gate on its own (confidence 0.84); the hand verification is kept as an audit backup
+   ruled out: eliminated LocalStorageCapacityIsolationFSQuotaMonitoring: its first stage (alpha, 1.15) is after the claimed since-version 1.8
+   ruled out: eliminated EphemeralContainers: its first stage (alpha, 1.16) is after the claimed since-version 1.8
+   ruled out: eliminated PodLevelResources: its first stage (alpha, 1.32) is after the claimed since-version 1.8
       source [e2]: https://github.com/kubernetes/website/blob/e91eff3b59c0bf813193202a4f193d37beb7efd7/content/en/docs/concepts/policy/resource-quotas.md#L194
 
 4. WHAT THE GATE HISTORY SAYS  (gate removed)
@@ -44,20 +47,21 @@ LINEAGE  |  Resource Quotas  (https://kubernetes.io/docs/concepts/policy/resourc
    @katcosgrove        score 1.0  [e12]
         - approves docs under content/en, content/en/docs via website:sig-docs-en-owners, website:sig-docs-website-owners
    -- domain experts (can check the facts)
-   @msau42             score 2.3  [e13]
+   @msau42             score 3.0  [e13]
         - approves code in pkg/volume, staging/src/k8s.io/csi-translation-lib (sig-storage) via kubernetes:sig-storage-approvers
         - approved the design decision 361-local-ephemeral-storage-isolation
-        - tech lead of sig-storage
-   @xing-yang          score 2.3  [e14]
+        - actively reviews: 8 recent PRs under pkg/volume (last 2026-07-22)
+   @gnufied            score 2.2  [e14]
         - approves code in pkg/volume, staging/src/k8s.io/csi-translation-lib (sig-storage) via kubernetes:sig-storage-approvers
-        - approved the design decision 361-local-ephemeral-storage-isolation
+        - actively reviews: 13 recent PRs under pkg/volume (last 2026-08-19)
         - chair of sig-storage
-   @gnufied            score 1.5  [e15]
-        - approves code in pkg/volume, staging/src/k8s.io/csi-translation-lib (sig-storage) via kubernetes:sig-storage-approvers
-        - chair of sig-storage
-   @jsafrane           score 1.5  [e16]
+   @jsafrane           score 2.2  [e15]
         - approves code in pkg/volume, staging/src/k8s.io/csi-translation-lib (+1 more) (sig-storage) via kubernetes:sig-storage-approvers
+        - actively reviews: 11 recent PRs under pkg/volume (last 2026-09-07)
         - tech lead of sig-storage
+   @thockin            score 1.7  [e16]
+        - approves code in pkg/volume, staging/src/k8s.io/csi-translation-lib (sig-storage) via kubernetes:sig-storage-approvers
+        - actively reviews: 3 recent PRs under staging/src/k8s.io/csi-translation-lib (last 2026-03-04)
 
 8. GRAPH PATH
    DocPage:content/en/docs/concepts/policy/resource-quotas.md
