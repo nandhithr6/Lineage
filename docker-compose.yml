@@ -1,10 +1,21 @@
+# One command: `docker compose up -d --build`
+#   falkordb -> loader (one-shot: snapshot -> graph, then drift detector) -> api
+# Safe to run again any time: the loader is idempotent (MERGE), and the graph lives on a named volume.
+# `docker compose down -v` DELETES the volume (the graph); the loader rebuilds it from the snapshot.
+
+x-falkordb-env: &falkordb-env
+  FALKORDB_HOST: falkordb
+  FALKORDB_PORT: "6379"
+  FALKORDB_PASSWORD: ${FALKORDB_PASSWORD:?set FALKORDB_PASSWORD in .env}
+  FALKORDB_GRAPH: ${FALKORDB_GRAPH:-lineage}
+
 services:
   falkordb:
     image: falkordb/falkordb:latest
     container_name: lineage-falkordb
     ports:
-      - "127.0.0.1:${FALKORDB_PORT:-6379}:6379"   # Redis protocol (Python client)
-      - "127.0.0.1:3000:3000"                      # FalkorDB browser UI
+      - "127.0.0.1:${FALKORDB_PORT:-6379}:6379"   # Redis protocol (local tools); never expose publicly
+      - "127.0.0.1:3000:3000"                      # FalkorDB browser UI (local only)
     environment:
       - REDIS_ARGS=--requirepass ${FALKORDB_PASSWORD:?set FALKORDB_PASSWORD in .env} --appendonly yes
       - REDISCLI_AUTH=${FALKORDB_PASSWORD}   # lets redis-cli (healthcheck) authenticate
@@ -15,6 +26,40 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    restart: unless-stopped
+
+  loader:
+    build: .
+    image: lineage-api
+    container_name: lineage-loader
+    command: ["sh", "-c", "python -m lineage.graph.loader && python -m lineage.detect.drift --write"]
+    environment:
+      <<: *falkordb-env
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    image: lineage-api
+    container_name: lineage-api
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"   # put a TLS reverse proxy in front for public access (see docs/deploy.md)
+    environment:
+      <<: *falkordb-env
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-}
+      LLM_MIN_INTERVAL: ${LLM_MIN_INTERVAL:-5}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    depends_on:
+      loader:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:
