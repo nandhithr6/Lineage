@@ -136,7 +136,13 @@ def parse_keps(repo_root: Path = ENHANCEMENTS_REPO, gate_names: list[str] | None
         if "kep-template" in kep_id:
             continue  # NNNN-kep-template is the template, not a KEP
         y = yaml.load(f.read_text(encoding="utf-8"), Loader=_Loader) or {}
-        gates = [g["name"] if isinstance(g, dict) else str(g) for g in y.get("feature-gates") or []]
+        gates = []
+        for g in y.get("feature-gates") or []:
+            name = g.get("name") if isinstance(g, dict) else g
+            if name and str(name).strip():
+                gates.append(str(name).strip())
+            else:
+                issues.append(f"feature-gates entry without a name skipped: {g!r}")
         readme = f.parent / "README.md"
         text = readme.read_text(encoding="utf-8", errors="replace") if readme.exists() else ""
         if not readme.exists():
@@ -184,7 +190,7 @@ def main() -> None:
     log.info("data issues by kind: %s", dict(kinds.most_common(8)))
     for k in keps:
         for i in k.issues:
-            if i.startswith(("unmapped status", "status typo", "kep-number")):
+            if i.startswith(("unmapped status", "status typo", "kep-number", "feature-gates entry")):
                 log.warning("%s: %s", k.id, i)
 
 

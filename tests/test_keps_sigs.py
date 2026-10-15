@@ -52,3 +52,17 @@ def test_no_email_or_company_in_sigs_snapshot():
     text = path.read_text()
     assert "@" not in text.replace("@kubernetes", "") or '"email"' not in text
     assert '"email"' not in text and '"company"' not in text
+
+
+def test_nameless_feature_gate_entries_are_skipped_and_reported(tmp_path):
+    from lineage.ingest import keps as K
+    import subprocess
+    repo = tmp_path / "enh"
+    d = repo / "keps" / "sig-x" / "1-thing"
+    d.mkdir(parents=True)
+    (d / "kep.yaml").write_text("title: T\nkep-number: 1\nowning-sig: sig-x\nstatus: implemented\nfeature-gates:\n  - name: Real\n  - components: [a]\n  - name: ''\n")
+    (d / "README.md").write_text("x")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.email=a@b.c", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "i"], check=True)
+    [k] = K.parse_keps(repo)
+    assert k.feature_gates == ["Real"] and sum("without a name" in i for i in k.issues) == 2
