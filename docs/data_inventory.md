@@ -65,6 +65,12 @@ Note: `emeritus_leads` was NOT present on the first SIG; check across all SIGs.
 - `website/OWNERS` has `emeritus_approvers` with commented-out entries (comments are meaningful: disabled assignments).
 - There is no OWNERS under `content/en/docs/concepts/policy/`; inheritance up to `content/en/` applies.
 
+## KEPs, SIGs (parsed, 2026-10-15)
+648 KEPs (all parsed; 2 had invalid dates, now read as strings). 393 list a gate in kep.yaml, 56 more only mention one in the README.
+Status after normalisation: implemented 296, implementable 277, provisional 51, withdrawn 11, replaced 5, rejected 3, deferred 1, unmapped 4.
+37 groups in sigs.yaml (24 SIGs, 10 working groups, 3 committees), 298 leader entries, 231 distinct people, 241 subprojects, 531 OWNERS URLs.
+Graph: 750 INTRODUCES edges (112 candidate rows name a gate with no gate file). `email` and `company` never leave the parser.
+
 ## Gaps / risks
 - OWNERS history not yet measured (kubernetes has 142,151 commits; blobless, so old file contents fetch on demand).
 - OWNERS entries can be team aliases, not people. Need OWNERS_ALIASES resolution in both repos.

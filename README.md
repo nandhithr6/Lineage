@@ -24,3 +24,14 @@ and the respective contributors. Snapshot commit SHAs are recorded in [docs/data
 
 **Personal data:** only public GitHub handles and display names are used. Email addresses and employer fields from
 `sigs.yaml` are dropped at ingestion.
+
+## Manually verified links (disclosure)
+
+Lineage links hard-coded docs labels to feature gates automatically, with a confidence score. One link was verified
+by hand by the project owner on 2026-10-15 because the linker could not separate two sibling gates
+(`LocalStorageCapacityIsolation` and `LocalStorageCapacityIsolationFSQuotaMonitoring`, both scored 0.79):
+the Resource Quotas section "Quota for local ephemeral storage". It is stored with `method: manual`, keeps the linker's original
+score on the edge for the audit trail, and is listed with its reasoning and sources in
+[snapshot/verified_links.jsonl](snapshot/verified_links.jsonl). All other links are automatic, and a finding needs an
+*anchored* link (the gate is named next to "feature gate" in the section, or the link was verified by hand). Everything else
+is reported as "possible drift" for a human to confirm.

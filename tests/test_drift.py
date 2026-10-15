@@ -60,13 +60,31 @@ from lineage.detect.drift import judge_claim
 
 def test_runner_up_that_fits_exactly_turns_a_finding_into_a_review_item():
     history = {"GRPCContainerProbeTLS": hist(("alpha", 37, 37)), "GRPCContainerProbe": hist(("beta", 24, 26), ("stable", 27, 37))}
-    ranked = [(0.955, "GRPCContainerProbeTLS", False, "linker"), (0.817, "GRPCContainerProbe", False, "linker")]
+    ranked = [(0.955, "GRPCContainerProbeTLS", False, "linker", True), (0.817, "GRPCContainerProbe", False, "linker", True)]
     ev = judge_claim("c1", "stable", "1.27", ranked, history)
     assert ev and ev.kind == "link_ambiguous" and ev.severity == "review"
 
 
 def test_weak_runner_up_does_not_veto_a_real_finding():
     history = {"A": hist(("beta", 20, 30), ("stable", 31, 37)), "B": hist(("beta", 20, 37))}
-    ranked = [(0.93, "A", False, "linker"), (0.35, "B", False, "linker")]  # B fits (beta) but is below 0.5
+    ranked = [(0.93, "A", False, "linker", True), (0.35, "B", False, "linker", True)]  # B fits (beta) but is below 0.5
     ev = judge_claim("c2", "beta", "1.20", ranked, history)
     assert ev and ev.kind == "stale_stage"
+
+
+from lineage.detect.drift import is_anchored
+
+
+def test_unanchored_link_gives_possible_drift_not_a_finding():
+    history = {"A": hist(("beta", 20, 30), ("stable", 31, 37))}
+    ev = judge_claim("c3", "beta", "1.20", [(0.93, "A", False, "linker", False)], history)
+    assert ev and ev.kind == "possible_drift" and ev.severity == "review"
+    ev = judge_claim("c3", "beta", "1.20", [(0.93, "A", False, "linker", True)], history)
+    assert ev and ev.kind == "stale_stage" and ev.severity == "finding"
+
+
+def test_anchoring():
+    assert is_anchored("linker", '{"name_mention": 0.9, "kep": 0.5}')
+    assert not is_anchored("linker", '{"name_mention": 0.5, "kep": 0.8, "text_sim": 0.8}')  # bare mention is not an anchor
+    assert not is_anchored("linker", '{"kep": 0.8, "text_sim": 0.9}')
+    assert is_anchored("manual", None) and not is_anchored("linker", None)

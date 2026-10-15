@@ -12,6 +12,7 @@ import json
 import zlib
 from pathlib import Path
 
+from lineage.ingest.keps import SNAPSHOT as KEPS
 from lineage.link.linker import CONFIDENT, Linker, _SHORTCODE, read_jsonl
 
 GATES = Path("snapshot/gates.jsonl")
@@ -66,13 +67,16 @@ def score_cases(linker: Linker) -> None:
 def main() -> None:
     gates = read_jsonl(GATES)
     labels = [x for x in read_jsonl(LABELS) if x["kind"] == "gate_lookup" and x["gate_name"] in {g["name"] for g in gates}]
-    for name, params in [("full", None), ("no name_mention", {"name_mention": 0.0})]:
-        linker = Linker(gates, params)
+    keps = read_jsonl(KEPS)
+    for name, params, k in [("no KEP signal", None, None), ("full", None, keps),
+                            ("no name_mention", {"name_mention": 0.0, "name_bare": 0.0}, None),
+                            ("no name + KEP", {"name_mention": 0.0, "name_bare": 0.0}, keps)]:
+        linker = Linker(gates, params, k)
         for h in ("A", "B"):
             sub = [x for x in labels if half(x["page_path"]) == h]
             print(f"{name:16s} half {h}:", json.dumps(score(sub, linker)))
     print("\nHand-picked cases (eval/drift_cases.jsonl):")
-    score_cases(Linker(gates))
+    score_cases(Linker(gates, None, keps))
 
 
 if __name__ == "__main__":
