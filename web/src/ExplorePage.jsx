@@ -92,16 +92,23 @@ function OwnersPanel({ params }) {
   )
 }
 
+const START_LIMIT = 40, MORE_STEP = 30, MAX_LIMIT = 100  // neighbours shown at first / added per click / the API's cap
+
 function EntityPanel({ params }) {
   const [label, setLabel] = useState(params.get('label') || 'FeatureGate')
   const [key, setKey] = useState(params.get('key') || 'LocalStorageCapacityIsolation')
   const [graph, setGraph] = useState(null)
   const [err, setErr] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [limit, setLimit] = useState(START_LIMIT)  // neighbours requested for the centre node; the API allows up to 100
+  const [shown, setShown] = useState({ label: null, key: null })
 
-  async function load(l = label, k = key) {
-    setBusy(true); setErr(null)
-    try { setGraph({ ...entityGraph(await api.entity(l, k, 24)), stamp: `${l}:${k}` }) } catch (e) { setErr(e.message); setGraph(null) } finally { setBusy(false) }
+  async function load(l = label, k = key, n = START_LIMIT) {
+    setBusy(true); setErr(null); setLimit(n); setShown({ label: l, key: k })
+    try {
+      const e = await api.entity(l, k, n)
+      setGraph({ ...entityGraph(e, Math.max(190, e.neighbors.length * 11)), stamp: `${l}:${k}:${n}` })  // a bigger ring for more neighbours, so labels do not overlap
+    } catch (e) { setErr(e.message); setGraph(null) } finally { setBusy(false) }
   }
   useEffect(() => { load(params.get('label') || label, params.get('key') || key) }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -117,7 +124,11 @@ function EntityPanel({ params }) {
         <button className="btn" disabled={busy}>{busy ? 'Loading…' : 'Show'}</button>
       </form>
       {err && <p className="note" role="alert">{err}</p>}
-      {graph && <>{graph.truncated && <p className="muted small">Showing the first 24 neighbours only (tap a node to expand it).</p>}<GraphView key={graph.stamp} graph={graph} onExpand={expand} hint="Tap a node to pull in its neighbours." /></>}
+      {graph && <><p className="muted small">
+        {graph.nodes.length - 1} neighbour{graph.nodes.length === 2 ? '' : 's'} of <code>{shown.key}</code> shown{graph.truncated ? ': there are more. ' : ' (all of them). '}
+        {graph.truncated && limit < MAX_LIMIT && <button className="btn small" disabled={busy} onClick={() => load(shown.label, shown.key, Math.min(limit + MORE_STEP, MAX_LIMIT))}>Show {Math.min(MORE_STEP, MAX_LIMIT - limit)} more</button>}{' '}
+        {graph.truncated && limit >= MAX_LIMIT && 'One view shows at most 100; tap a neighbour to expand it instead. '}
+        {' '}The full graph is too dense to read (about 6,900 nodes and 30,000 edges): this view is one entity and its neighbours.</p><GraphView key={graph.stamp} graph={graph} onExpand={expand} hint="Tap a node to pull in its neighbours." /></>}
     </section>
   )
 }

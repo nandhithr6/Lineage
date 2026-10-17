@@ -17,7 +17,7 @@ CACHE_PATH = Path("snapshot/demo_answers.jsonl")
 SNAPSHOT_DIR = Path("snapshot")
 # Not part of the fingerprint: the cache itself, and the text-search chunks/embeddings, which only the free-text search tool reads (the saved demo answers come from the
 # structured tools, so re-embedding must not silently throw them away).
-FINGERPRINT_EXCLUDE = {"demo_answers.jsonl", "chunks.jsonl"}
+FINGERPRINT_EXCLUDE = {"demo_answers.jsonl", "chunks.jsonl", "ownership_views.json"}  # ownership_views.json is derived from files that ARE fingerprinted
 CACHE_VERSION = "1"  # bump when the answer format or the agent's rules change in a way that makes old answers misleading
 
 # The demo-script questions (docs/demo_script.md) and the Ask page's example buttons. Keep this list short: every entry costs LLM calls to build.

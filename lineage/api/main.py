@@ -69,11 +69,16 @@ def get_graph() -> Graph:
     return _graph()
 
 
+OWNERSHIP_VIEWS_PATH = Path("snapshot/ownership_views.json")
+
+
 def ownership_views(g: Graph, months: int) -> dict:
     """Orphaned, dormant and gap views from ONE whole-tree scan (about 10 s), cached for 5 minutes."""
     def build() -> dict:
-        scan = scan_ownership(g, months)
-        return {"orphans": orphaned_components(g, months, scan=scan), "dormant": dormant_components(g, months, scan=scan), "gaps": ownership_gaps(g, months, limit=12, scan=scan)}
+        from lineage.graph import ownership_views as ov
+
+        stored = ov.load_precomputed(months, OWNERSHIP_VIEWS_PATH)  # computed once from the same snapshot: instant, instead of 10 s here and 90 s on a free web host
+        return stored if stored is not None else ov.compute(g, months)  # otherwise live, with the activity window ending at the snapshot date
     return cached(("views", g.name, months), build)
 
 
@@ -441,7 +446,8 @@ def insights(months: int = Query(12, ge=1, le=36), g: Graph = Depends(get_graph)
         dormant=[DormantRow(path=d["path"], listed_approvers=d["listed_approvers"]) for d in views["dormant"]],
         key_reviewers=[KeyReviewer(**r) for r in review_network_top(g, 12)],
         notes=[COVERAGE_NOTE, "PageRank ranks position in the review network (rank flows from an author to the people who review them); it is not a measure of skill or ownership.",
-               "Orphaned = other people did work in the folder but no listed approver was active (the risk). Dormant = no recorded activity at all, often just stable code (not a risk)."])
+               "Orphaned = other people did work in the folder but no listed approver was active (the risk). Dormant = no recorded activity at all, often just stable code (not a risk).",
+               "The activity window ends at the snapshot date (2026-10-15), where the pull-request data ends, not at today's date."])
 
 
 KEYS = {"Release": "num", "FeatureGate": "name", "DocPage": "path", "DocSection": "id", "Claim": "id", "KEP": "id", "SIG": "id",

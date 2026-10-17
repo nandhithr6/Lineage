@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTraceGraph, diffLines, distinctPeople, entityGraph, mergeEntity, releaseNum, splitCitations } from './graph.js'
+import { buildTraceGraph, diffLines, distinctPeople, entityGraph, inlineTokens, markdownBlocks, mergeEntity, releaseNum, splitCitations } from './graph.js'
 
 const sections = {
   page: { path: 'content/en/docs/concepts/policy/resource-quotas.md', title: 'Resource Quotas' },
@@ -90,4 +90,15 @@ test('entityGraph spreads many neighbours over two rings so labels do not collid
 test('splitCitations turns grouped citations into one chip per id', () => {
   assert.deepEqual(splitCitations('A [e7, e8] and [e9].'), [{ text: 'A ' }, { cite: 'e7' }, { cite: 'e8' }, { text: ' and ' }, { cite: 'e9' }, { text: '.' }])
   assert.deepEqual(splitCitations('no cite [1, 2]'), [{ text: 'no cite [1, 2]' }])
+})
+
+test('markdown: bold, code and inline bullets become tokens, never HTML', () => {
+  assert.deepEqual(inlineTokens('a **b** `c` d'), [{ text: 'a ' }, { text: 'b', bold: true }, { text: ' ' }, { text: 'c', code: true }, { text: ' d' }])
+  assert.deepEqual(inlineTokens('<b>x</b> ** not bold'), [{ text: '<b>x</b> ** not bold' }])  // markup stays text
+  const blocks = markdownBlocks('There are two pages: * **About cgroup v2** (url) is stale [e3]. * **Device Plugins** too [e4].\nDone.')
+  assert.deepEqual(blocks.map((b) => b.type), ['p', 'li', 'li', 'p'])
+  assert.equal(blocks[1].tokens[0].bold, true)
+  assert.deepEqual(markdownBlocks('- one\n- two').map((b) => b.type), ['li', 'li'])
+  assert.deepEqual(markdownBlocks(''), [])
+  assert.equal(splitCitations(blocks[1].tokens.map((t) => t.text).join('')).filter((p) => p.cite).length, 1)  // citations survive inside a bullet
 })

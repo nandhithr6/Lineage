@@ -23,6 +23,8 @@ def graph(monkeypatch, tmp_path):
     from lineage.graph import loader
     monkeypatch.setattr(loader, "PRS_SNAPSHOT", tmp_path / "no-prs-in-unit-tests.jsonl")
     monkeypatch.setattr(loader, "CHUNKS_SNAPSHOT", tmp_path / "no-chunks-in-unit-tests.jsonl")  # vector tests load their own small set
+    import lineage.api.main as _api
+    monkeypatch.setattr(_api, "OWNERSHIP_VIEWS_PATH", tmp_path / "no-precomputed-views-in-unit-tests.json")  # unit tests compute from the small test graph, not from the stored file
     try:
         db = connect()
         db.connection.ping()

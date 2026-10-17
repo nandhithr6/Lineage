@@ -101,3 +101,5 @@ form.ask .toggle { display: flex; align-items: center; gap: 6px; font-size: .8re
 .memory .note { border: 1px solid var(--border); border-left: 4px solid var(--sev-minor); border-radius: var(--radius); padding: 8px 10px; margin: 6px 0; background: var(--surface); }
 .reverify.unchanged strong { color: #16a34a; } .reverify.changed strong, .reverify.unavailable strong { color: var(--sev-finding); }
 button.btn.small { font-size: .75rem; padding: 2px 8px; margin: 4px 0; }
+
+.answer p { margin: 0 0 .5rem; } .answer ul { margin: .2rem 0 .6rem 1.1rem; padding: 0; } .answer li { margin: .15rem 0; } .answer code { background: var(--code-bg); padding: 0 4px; border-radius: 4px; }

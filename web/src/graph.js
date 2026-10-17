@@ -129,3 +129,29 @@ export function distinctPeople(rows) {
   }
   return [...by.values()].map((p) => ({ ...p, places: [...p.places], teams: [...p.teams] }))
 }
+
+
+/** Models answer in light markdown. Turn it into blocks of tokens so the UI can render **bold**, `code` and bullet lists without injecting HTML:
+ *  [{type: 'p' | 'li', tokens: [{text, bold?, code?}]}]. A bullet that a model wrote inline ("... [e3]. * **Name** ...") starts a new list item. */
+export function markdownBlocks(text) {
+  const src = String(text || '').replace(/([.\])])\s+\*\s+(?=\*\*)/g, '$1\n* ').replace(/:\s+\*\s+(?=\*\*)/g, ':\n* ')
+  const out = []
+  for (const raw of src.split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    const bullet = line.match(/^[*-]\s+(.*)$/)
+    out.push({ type: bullet ? 'li' : 'p', tokens: inlineTokens(bullet ? bullet[1] : line) })
+  }
+  return out
+}
+
+export function inlineTokens(text) {
+  const tokens = []
+  for (const part of String(text).split(/(\*\*[^*]+\*\*|`[^`]+`)/g)) {
+    if (!part) continue
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) tokens.push({ text: part.slice(2, -2), bold: true })
+    else if (part.startsWith('`') && part.endsWith('`') && part.length > 2) tokens.push({ text: part.slice(1, -1), code: true })
+    else tokens.push({ text: part })
+  }
+  return tokens
+}

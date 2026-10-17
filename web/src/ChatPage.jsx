@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { api } from './api.js'
-import { splitCitations } from './graph.js'
+import { markdownBlocks, splitCitations } from './graph.js'
 
 // Saved answers exist for these exact questions (they work without an LLM key or quota); anything else goes to the model.
 const SAMPLES = ['Why is the Resource Quotas page stale?', "Is the 'stable since v1.27' label in the CronJob time zones section correct?", 'Who owned pkg/controller/job in 1.30 and who owns it now?', 'Who officially owns pkg/volume and who actually reviews it?', 'What design decision introduced LocalStorageCapacityIsolation?', 'Which docs pages look out of date?', 'What is the stage of the LocalStorageCapacityIsolatio gate?', 'Who will approve pkg/controller/job in release 1.45?']
@@ -65,13 +65,23 @@ function RetrievalBox({ rag }) {
   )
 }
 
+function Rich({ text, known, onCite }) {
+  const blocks = markdownBlocks(text)
+  const cell = (tok, k) => (tok.code ? <code key={k}>{tok.text}</code> : tok.bold ? <strong key={k}>{tok.text}</strong> : <span key={k}>{tok.text}</span>)
+  const inline = (tokens, bk) => tokens.flatMap((tok, ti) => splitCitations(tok.text).map((p, pi) => (p.cite
+    ? <button key={`${bk}-${ti}-${pi}`} className={known.has(p.cite) ? 'cite' : 'cite unknown'} onClick={() => onCite(p.cite)} aria-label={`Show evidence ${p.cite}`}>{p.cite}</button>
+    : cell({ ...tok, text: p.text }, `${bk}-${ti}-${pi}`))))
+  const items = []
+  let list = []
+  const flush = (k) => { if (list.length) { items.push(<ul key={`ul${k}`}>{list}</ul>); list = [] } }
+  blocks.forEach((b, i) => { if (b.type === 'li') list.push(<li key={i}>{inline(b.tokens, i)}</li>); else { flush(i); items.push(<p key={i}>{inline(b.tokens, i)}</p>) } })
+  flush('end')
+  return <>{items}</>
+}
+
 function Answer({ msg, onCite }) {
   const known = new Set(msg.citations.map((c) => c.id))
-  return (
-    <p className="answer">{splitCitations(msg.text).map((p, i) => p.cite
-      ? <button key={i} className={known.has(p.cite) ? 'cite' : 'cite unknown'} onClick={() => onCite(p.cite)} aria-label={`Show evidence ${p.cite}`}>{p.cite}</button>
-      : <span key={i}>{p.text}</span>)}</p>
-  )
+  return <div className="answer"><Rich text={msg.text} known={known} onCite={onCite} /></div>
 }
 
 export default function ChatPage({ llmConfigured }) {
