@@ -6,9 +6,11 @@ RUN pip install --no-cache-dir uv
 WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/app/.venv/bin:$PATH" FASTEMBED_CACHE=/opt/fastembed
 COPY lineage ./lineage
 COPY snapshot ./snapshot
+# local embedding model for search_text (about 210 MB), baked in so the container needs no network at runtime
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-base-en-v1.5', cache_dir='/opt/fastembed')" && chmod -R a+rX /opt/fastembed
 
 RUN useradd --create-home --uid 10001 lineage
 USER lineage
