@@ -1,66 +1,33 @@
-# One command: `docker compose up -d --build`
-#   falkordb -> loader (one-shot: snapshot -> graph, then drift detector) -> api
-# Safe to run again any time: the loader is idempotent (MERGE), and the graph lives on a named volume.
-# `docker compose down -v` DELETES the volume (the graph); the loader rebuilds it from the snapshot.
-
-x-falkordb-env: &falkordb-env
-  FALKORDB_HOST: falkordb
-  FALKORDB_PORT: "6379"
-  FALKORDB_PASSWORD: ${FALKORDB_PASSWORD:?set FALKORDB_PASSWORD in .env}
-  FALKORDB_GRAPH: ${FALKORDB_GRAPH:-lineage}
+# One command, everything on one port:   docker compose up --build        then open http://localhost:7860
+#
+# One container (Dockerfile.single): FalkorDB (inside, localhost only) + loader + drift detector + API + MCP server + the built web UI + the local embedding model.
+# The committed snapshot is loaded into the in-container graph at every start (about 15 seconds), so nothing needs to persist and there is no database password to set.
+# Without any key in .env the saved answers, findings, trace, Explore, Insights, What changed, text search and the MCP tools all work; add GEMINI_API_KEY (and optionally
+# GROQ_API_KEY) to .env for free-form questions. First build takes several minutes (it downloads the 210 MB embedding model); later starts reuse the image.
+# Smaller image without the embedding model (about 750 MB, 150 MB of RAM): docker build -f Dockerfile.slim -t lineage-slim .   (see docs/deploy.md)
+# For a server with a persistent graph volume use docker-compose.stack.yml.
 
 services:
-  falkordb:
-    image: falkordb/falkordb:latest
-    container_name: lineage-falkordb
+  lineage:
+    build:
+      context: .
+      dockerfile: Dockerfile.single
+    image: lineage-single
+    container_name: lineage
     ports:
-      - "127.0.0.1:${FALKORDB_PORT:-6379}:6379"   # Redis protocol (local tools); never expose publicly
-      - "127.0.0.1:3000:3000"                      # FalkorDB browser UI (local only)
+      - "127.0.0.1:${PORT:-7860}:7860"   # local only; use scripts/share_demo.sh for a temporary public link
     environment:
-      - REDIS_ARGS=--requirepass ${FALKORDB_PASSWORD:?set FALKORDB_PASSWORD in .env} --appendonly yes
-      - REDISCLI_AUTH=${FALKORDB_PASSWORD}   # lets redis-cli (healthcheck) authenticate
-    volumes:
-      - falkordb_data:/var/lib/falkordb/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-
-  loader:
-    build: .
-    image: lineage-api
-    container_name: lineage-loader
-    command: ["sh", "-c", "python -m lineage.graph.loader && python -m lineage.detect.drift --write"]
-    environment:
-      <<: *falkordb-env
-    depends_on:
-      falkordb:
-        condition: service_healthy
-    restart: "no"
-
-  api:
-    build: .
-    image: lineage-api
-    container_name: lineage-api
-    ports:
-      - "127.0.0.1:${API_PORT:-8000}:8000"   # put a TLS reverse proxy in front for public access (see docs/deploy.md)
-    environment:
-      <<: *falkordb-env
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: ${GROQ_MODEL:-}
       LLM_MIN_INTERVAL: ${LLM_MIN_INTERVAL:-5}
-      LLM_BASE_URL: ${LLM_BASE_URL:-}
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-}
-    depends_on:
-      loader:
-        condition: service_completed_successfully
+      ASK_PER_IP_PER_HOUR: ${ASK_PER_IP_PER_HOUR:-12}
+      ASK_PER_DAY: ${ASK_PER_DAY:-150}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:7860/healthz', timeout=2).status == 200 else 1)"]
+      interval: 15s
+      timeout: 3s
+      retries: 8
+      start_period: 90s
     restart: unless-stopped
-
-volumes:
-  falkordb_data:

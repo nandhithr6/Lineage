@@ -4,7 +4,7 @@
 
 What makes this safe to trust:
   * only an answer the server itself produced AND the validator accepted can be saved (the client sends an answer id, never text), so a note cannot be forged or hold an unverified claim;
-  * a note is private to the session that saved it (the blog's per-tenant isolation, done with a property filter because a Space has one graph) and can be forgotten;
+  * a note is private to the session that saved it (the blog's per-tenant isolation, done with a property filter because a deployment has one graph) and can be forgotten;
   * a note is never an answer on its own: when it is used, the tools it was based on are RE-RUN against the graph now and the evidence compared with the evidence it was saved with
     (`reverify`): unchanged, changed, or unavailable. The date it was learned is always shown, so a reader can weigh its age.
 The graph in a single-container deploy is rebuilt on every start, so notes there last until the container restarts; with the compose volume they persist.

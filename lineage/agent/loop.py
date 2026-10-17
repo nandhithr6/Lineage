@@ -110,7 +110,7 @@ def run_agent(llm: LLM, tools: ToolBox, question: str, history: list[dict] | Non
     last_path: list[str] = []
     asked_for_citations = False
     for it in range(1, max_iterations + 1):
-        resp: LLMResponse = llm.chat(messages, ToolBox.SCHEMAS)
+        resp: LLMResponse = llm.chat(messages, tools.available_schemas() if hasattr(tools, "available_schemas") else ToolBox.SCHEMAS)
         if resp.tool_calls:
             messages.append({"role": "assistant", "content": resp.text or "",
                              "tool_calls": [{"id": c.id, "type": "function", "function": {"name": c.name, "arguments": json.dumps(c.arguments)},

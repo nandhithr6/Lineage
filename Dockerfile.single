@@ -1,4 +1,4 @@
-# ONE container for hosts that run a single image with no persistent disk (Hugging Face Spaces, Render, Fly.io, Koyeb, Railway...).
+# ONE container for hosts that run a single image with no persistent disk (Render, Fly.io, Koyeb, Railway...).
 # FalkorDB + loader + detector + API + built web UI. Build: docker build -f Dockerfile.single -t lineage-single .
 # Run:   docker run -p 7860:7860 -e GEMINI_API_KEY -e GEMINI_MODEL lineage-single      then open http://localhost:7860
 
@@ -16,9 +16,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 python3
 ENV UV_HTTP_TIMEOUT=180 UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 UV_PYTHON_INSTALL_DIR=/opt/python PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
-RUN uv sync --frozen --no-dev && chmod -R a+rX /opt/python /app/.venv
+RUN uv sync --frozen --no-dev --extra embed && chmod -R a+rX /opt/python /app/.venv
 ENV PATH="/app/.venv/bin:$PATH" PORT=7860 WEB_DIST=/app/web/dist FASTEMBED_CACHE=/opt/fastembed
-# the local embedding model (BAAI/bge-base-en-v1.5, quantised ONNX, ~210 MB) is baked in: search_text embeds the question at query time and a Space has no persistent disk
+# the local embedding model (BAAI/bge-base-en-v1.5, quantised ONNX, ~210 MB) is baked in: search_text embeds the question at query time and a host with no persistent disk cannot download it at start
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-base-en-v1.5', cache_dir='/opt/fastembed')"
 COPY lineage ./lineage
 COPY snapshot ./snapshot

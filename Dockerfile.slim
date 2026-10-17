@@ -1,0 +1,33 @@
+# SLIM single container: FalkorDB + loader + detector + API + MCP + built UI, WITHOUT the local embedding model.
+# For free hosts with little memory (Render free: 512 MB). Vector search is not in this build; the contrast toggle uses keyword (TF-IDF) retrieval and the saved demo
+# answers still work. Build: docker build -f Dockerfile.slim -t lineage-slim .     Run: docker run -p 7860:7860 lineage-slim     (then http://localhost:7860)
+# The FalkorDB binaries are copied from the official image onto a small Python base instead of building on top of it (saves about 500 MB).
+
+FROM node:22-slim AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/ ./
+RUN npm run build
+
+FROM falkordb/falkordb:latest AS falkor
+
+FROM python:3.12-slim-trixie
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 libsystemd0 libcap2 libstdc++6 ca-certificates \
+    && rm -rf /var/lib/apt/lists/* && pip install --no-cache-dir uv && useradd --create-home --uid 1000 lineage
+COPY --from=falkor /usr/local/bin/redis-server /usr/local/bin/redis-cli /usr/local/bin/
+COPY --from=falkor /var/lib/falkordb/bin/falkordb.so /var/lib/falkordb/bin/falkordb.so
+ENV UV_HTTP_TIMEOUT=180 UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 UV_PYTHON_PREFERENCE=only-system PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+WORKDIR /app
+COPY pyproject.toml uv.lock .python-version ./
+RUN uv sync --frozen --no-dev
+ENV PATH="/app/.venv/bin:$PATH" PORT=7860 WEB_DIST=/app/web/dist LINEAGE_SLIM=1
+COPY lineage ./lineage
+COPY snapshot ./snapshot
+COPY --from=web /web/dist ./web/dist
+COPY deploy/start.sh ./start.sh
+RUN chmod a+rx /app/start.sh && chmod -R a+rX /app
+USER lineage
+EXPOSE 7860
+ENTRYPOINT ["/app/start.sh"]
+CMD []

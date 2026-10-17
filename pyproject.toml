@@ -6,14 +6,18 @@ requires-python = ">=3.11"
 dependencies = [
     "falkordb>=1.8.0",
     "fastapi>=0.143.1",
-    "fastembed>=0.9.0",
     "httpx>=0.28.1",
     "mcp>=2.3.0",
+    "numpy>=1.26",
     "pydantic>=2.14.1",
     "python-frontmatter>=1.3.0",
     "pyyaml>=6.0.3",
     "uvicorn[standard]>=0.54.0",
 ]
+
+[project.optional-dependencies]
+# The local embedding model (vector search, the vector retrieval baseline). Optional: the slim image (Dockerfile.slim) leaves it out and everything else works.
+embed = ["fastembed>=0.9.0"]
 
 [tool.uv]
 package = false

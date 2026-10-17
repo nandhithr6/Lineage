@@ -54,7 +54,7 @@ function RetrievalBox({ rag }) {
   const known = new Set(rag.evidence.map((c) => c.id))
   return (
     <div className="col rag">
-      <h4>Plain retrieval <small>(vector search over the same text, no graph, no checks)</small></h4>
+      <h4>Plain retrieval <small>({rag.retriever === 'tfidf' ? 'keyword (TF-IDF) search over the same text: this build has no embedding model' : 'vector search over the same text'}, no graph, no checks)</small></h4>
       {rag.cached && <span className="badge sev-minor" title={`Saved ${rag.cached_at}`}>Saved answer</span>}
       <p className="answer">{splitCitations(rag.answer).map((p, i) => p.cite ? <span key={i} className={known.has(p.cite) ? 'cite static' : 'cite unknown'}>{p.cite.replace('e', 'p')}</span> : <span key={i}>{p.text}</span>)}</p>
       <details open><summary>The 5 passages it retrieved</summary>

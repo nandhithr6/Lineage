@@ -21,22 +21,25 @@ Kubernetes or CNCF tool. It is read-only: it never posts to Kubernetes repositor
 
 The **Explore** page of the UI answers "who owned this folder in release 1.30, and what changed since?" with no LLM key needed. See the trace in the terminal: `uv run --env-file .env python -m lineage.hero resource-quotas` (saved output: [docs/hero_resource_quotas.txt](docs/hero_resource_quotas.txt)).
 
-## Quick start
+## Run it yourself (one command)
 
-Prerequisites: Docker with the compose plugin; for development also [uv](https://docs.astral.sh/uv/) and Node 20+.
+Prerequisite: Docker with the compose plugin. Nothing else: the data snapshot is committed, so there is nothing to clone or download by hand.
 
 ```bash
-cp .env.example .env              # then set a long random FALKORDB_PASSWORD
-docker compose up -d --build      # FalkorDB -> loader (snapshot -> graph, then detector) -> API on http://127.0.0.1:8000
-curl localhost:8000/health        # {"status":"ok","database":true,...}
-curl "localhost:8000/findings?severity=finding"
+git clone https://github.com/nandhithr6/Lineage.git && cd Lineage
+docker compose up --build         # then open http://localhost:7860
 ```
 
-The snapshot (`snapshot/*.jsonl`, 3 MB) is committed, so no cloning is needed to run the product. Interactive API docs: <http://127.0.0.1:8000/docs>.
+- **Time:** the first build takes several minutes (it builds the UI and downloads the 210 MB local embedding model); after that, a start reaches "healthy" in about 15 seconds (it loads the snapshot into an in-container FalkorDB, runs the drift detector, then serves).
+  The UI, the API (`/api`, docs at `/api/docs`), a health check (`/healthz`) and the MCP server (`/mcp/`) share port 7860. Nothing is stored: stop it and the graph is rebuilt from the snapshot next time.
+- **Without any key** (no `.env` needed): the Findings list and the full trace for each finding (claimed vs verified stage, gate history, design decision, implementing pull requests and tickets, reviewers with the path that connects them), the drafted fix,
+  Explore (ownership as of a release, official vs actual), Insights, What changed, text search, the eight saved Ask questions (six answered with their evidence, the plain-retrieval version of the hero question, and two unknown-entity refusals that need no model), and all MCP tools.
+- **With a key** (put `GEMINI_API_KEY`, optionally `GROQ_API_KEY` and the model names in `.env`; see `.env.example`): free-form questions in Ask, the plain-retrieval contrast on any question, and memory on fresh answers. The free Gemini tier is small, so the public-site limits (`ASK_PER_IP_PER_HOUR`, `ASK_PER_DAY`) apply.
+- **Smaller build:** `docker build -f Dockerfile.slim -t lineage-slim . && docker run -p 7860:7860 lineage-slim`: 750 MB, about 150 MB of RAM (peak 214 MB at start, measured under a 512 MB limit), without the embedding model, so text search says "available in the local setup" and the contrast toggle uses keyword retrieval.
+- **Share a live demo from your own machine** for a recording or a judging window: `sh scripts/share_demo.sh` opens a temporary public link (Cloudflare quick tunnel, no account); the link works only while your machine is running it and changes each time, so it is not written anywhere in this repository.
+- **Server stack** (persistent graph volume, API only): `docker compose -f docker-compose.stack.yml up -d --build` (see [docs/deploy.md](docs/deploy.md)). **Development:** `uv sync --extra embed` (the embedding model is an optional extra), `cd web && npm install && npm run dev` for the UI on <http://localhost:5173>.
 
-Web UI (development): `cd web && npm install && npm run dev`, then open <http://localhost:5173> (the dev server proxies `/api` to the API).
-
-Chat (`/ask`) needs a Gemini key (primary) and optionally a Groq key (fallback). Put `GEMINI_API_KEY`, `GROQ_API_KEY` in `.env`, then run `uv run --env-file .env python scripts/pick_models.py --write` to choose model names by probing what your keys can actually use. Without keys everything else works and `/ask` answers with a clear 503. From a terminal: `uv run --env-file .env python -m lineage.agent.cli "Why is the Resource Quotas label stale?"`.
+Chat needs a Gemini key (primary) and optionally a Groq key (fallback); run `uv run --env-file .env python scripts/pick_models.py --write` to choose model names by probing what your keys can actually use. Without keys, `/ask` still answers the saved questions and refuses the rest with a clear message.
 
 ### Rebuilding the snapshot from the sources
 
@@ -52,13 +55,13 @@ uv run python -m lineage.link.linker        # label -> gate links with confidenc
 uv run python -m lineage.ingest.manifest    # records the commit of every source repo
 uv run --env-file .env python -m lineage.graph.loader        # snapshot -> FalkorDB (idempotent: MERGE)
 uv run --env-file .env python -m lineage.detect.drift --write # findings -> graph
-uv run --env-file .env pytest -q            # 199 tests (some need the running FalkorDB and skip without it)
+uv run --env-file .env pytest -q            # 251 tests (some need the running FalkorDB and skip without it)
 cd web && npm test                           # 7 unit tests for the UI's pure logic
 ```
 
 ### Deploying
 
-See [docs/deploy.md](docs/deploy.md). The simplest path is `Dockerfile.single`: one container with the database, API and web UI on one port, no disk needed (tested locally). A compose stack for a VPS is the alternative. **Nothing has been deployed publicly yet**; the notes mark what was tested.
+There is **no public deployment**: the complete local setup above is the baseline. [docs/deploy.md](docs/deploy.md) has the exact steps for a free no-card host (Render, with `Dockerfile.slim` and `render.yaml`; not verified end to end) and for a server you control (`docker-compose.stack.yml`).
 
 ## Architecture
 
@@ -190,7 +193,9 @@ hardened anyway; a 42-key digest of expertise counts, PageRank inputs, ownership
 Lineage is also an MCP server (official Python SDK, `mcp` 2.3): the same eleven curated, read-only tools, returning the **same evidence bundles** (ids `e1`, `e2`, ... and commit-pinned `source_url`s), so any MCP client can ask for evidence and cite it. There are no write tools and no free-form Cypher; every tool is one fixed, parameterised query and
 carries the `readOnlyHint` annotation. Tools: `drift_findings`, `explain_finding`, `gate_timeline`, `doc_claims`, `owners_of`, `decision_lineage`, `suggest_reviewers`, `experts_for`, `what_changed`, `orphaned_components`, `path_between`. Refusals travel unchanged: `owners_of(path, as_of="1.45")` returns `insufficient_evidence` with the reason.
 
-**stdio** (desktop clients; FalkorDB must be running and loaded: `docker compose up -d`, then the loader):
+**Easiest:** with the app running (`docker compose up --build`), point an MCP client that supports streamable HTTP at `http://localhost:7860/mcp/`.
+
+**stdio** (desktop clients; FalkorDB must be reachable from your machine and loaded: `docker compose -f docker-compose.stack.yml up -d`, which publishes it on localhost:6379):
 
 ```bash
 uv run --env-file .env python -m lineage.mcp_server

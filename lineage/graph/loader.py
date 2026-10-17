@@ -588,8 +588,12 @@ def load_all(g: Graph, gates_path: Path = GATES_SNAPSHOT, labels_path: Path = LA
             load_pr_keps(g, read_jsonl(PR_KEPS_SNAPSHOT), now)
     if VERIFIED_LINKS.exists():
         load_verified(g, VERIFIED_LINKS, {x["id"]: x["source_url"] for x in labels}, now)
-    if include_chunks and CHUNKS_SNAPSHOT.exists():
+    from lineage.agent.local_embeddings import available as embeddings_available
+
+    if include_chunks and CHUNKS_SNAPSHOT.exists() and embeddings_available():  # the slim build has no embedding model, so the vector index would never be queried
         load_chunks(g, CHUNKS_SNAPSHOT, now)
+    elif include_chunks and CHUNKS_SNAPSHOT.exists():
+        log.info("slim build: text chunks and the vector index are not loaded")
     from lineage.graph.paths import set_path_weights
 
     set_path_weights(g)  # algo.SPpaths needs a numeric weight on every edge it may use (path_between, reviewer connections)

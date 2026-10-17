@@ -1,7 +1,7 @@
 # Deploying Lineage
 
 Status legend: **[tested]** means it was run on a development machine; **[untested]** means it is written from documentation
-and has not been run yet. Nothing here has been deployed publicly.
+and has not been run yet. Nothing here has been deployed publicly. The baseline is the complete local setup in the README (`docker compose up --build`).
 
 ## What runs where
 
@@ -25,13 +25,31 @@ docker run -p 7860:7860 -e GEMINI_API_KEY -e GEMINI_MODEL -e GROQ_API_KEY -e GRO
 
 Verified on 2026-10-16: the container loads the snapshot, finds the 2 findings, serves the UI and API from one port, answers a real chat question, and its log contains no keys.
 
-**To put it on a host** (not done: it needs your account): any host that runs a Docker image works (Hugging Face Spaces with the Docker SDK, Render, Fly.io, Koyeb, Railway...). Point it at `Dockerfile.single`, expose port 7860 (or let it use `$PORT`), use `/healthz`
+**To put it on a host** (not done): any host that runs a Docker image works (Render, Fly.io, Koyeb, Railway...). Point it at `Dockerfile.single` (or `Dockerfile.slim` for a small free plan, see below), expose port 7860 (or let it use `$PORT`), use `/healthz`
 as the health check, and add the model keys as **secrets / environment variables, never in the repository**: `GEMINI_API_KEY`, `GEMINI_MODEL`, optionally `GROQ_API_KEY`, `GROQ_MODEL`. Host-specific clicks are **untested** here. Allow about 1 GB of RAM.
 
 **Public-site safety:** a public chat endpoint would let strangers spend your free-tier quota, so `/api/ask` allows `ASK_PER_IP_PER_HOUR` (default 12) per visitor and `ASK_PER_DAY` (default 150) in total, then answers 429 with a clear message;
 findings, Explore and the graph keep working. The free Gemini tier is small (about 20 requests a day on the flagship, more on the flash-lite model), so expect the chat to hit its limit on a busy day and fall back to Groq.
 
-## 1. Server with compose (alternative: a VPS you control)
+## 0b. Free web host without a card: Render with the slim image **[image tested; Render steps untested]**
+
+`Dockerfile.slim` is the same single container WITHOUT the local embedding model, for a host with little memory. **Measured here** (Docker, 512 MB memory limit, no OOM kill): image **749 MB**; RAM **214 MiB peak while starting, about 150 MiB idle and after
+requests**; healthy after **13 s on 1 CPU and 44 s on 0.25 CPU**. In this build `/api/search` answers "unavailable" and `search_text` is not offered to the model (both say "available in the local setup"), the contrast toggle uses keyword (TF-IDF) retrieval and says so,
+and the saved demo answers (including the saved vector-retrieval hero answer, labelled as such) still work. Everything else is identical.
+
+What Render's free web service gives (from render.com/docs/free, read on 2026-10-17): no payment method is needed to deploy; **750 free instance hours a month**; the service **spins down after 15 minutes without traffic and takes "about one minute" to wake**; no persistent disk (the graph is rebuilt from the
+snapshot on every start, so memory notes last until a restart); one instance only. That page does not state RAM or CPU for the free plan (I believe 512 MB and a fraction of a CPU: check the plan page), and it does not mention Docker services; this has not been run on Render.
+
+Manual steps (the safer route; `render.yaml` is the same thing as a Blueprint):
+1. render.com, sign up with GitHub (no card). **New +** -> **Web Service** -> **Build and deploy from a Git repository** -> pick `nandhithr6/Lineage`.
+2. **Language:** Docker. **Dockerfile Path:** `./Dockerfile.slim`. **Instance Type:** Free. **Health Check Path:** `/healthz`. Leave the port alone: Render injects `PORT` and the container listens on it.
+3. **Environment variables** (Advanced): `GEMINI_API_KEY` and `GROQ_API_KEY` (a key made for the demo), `GEMINI_MODEL` = `gemini-3.1-flash-lite`, `GROQ_MODEL` = the model in your `.env`, `LLM_MIN_INTERVAL` = `5`, `ASK_PER_IP_PER_HOUR` = `12`, `ASK_PER_DAY` = `150`. Without any key the site still works (saved answers, findings, trace, Explore).
+4. **Create Web Service.** The first build takes a few minutes (it builds the UI and installs the dependencies). When it says Live, open the `onrender.com` URL: the first request after a sleep takes about a minute, and the page may look empty until the graph has loaded.
+5. **Smoke test:** `/healthz` -> `{"status":"ok"}`; `/api/health` -> `"embeddings": false`; Findings shows 2 findings and 4 review items; Ask -> "Why is the Resource Quotas page stale?" answers instantly; the two refusal questions say Unknown entity; `/api/changes-since?since=latest` returns a summary;
+   `npx @modelcontextprotocol/inspector --cli https://<service>.onrender.com/mcp/ --transport http --method tools/list` lists 11 tools.
+6. If the build runs out of memory or minutes, or the free plan will not run a Docker service, stop: the complete local setup (README) and `scripts/share_demo.sh` are the fallback and need nothing from Render.
+
+## 1. Server with compose (alternative: a VPS you control; the API only, with a persistent graph volume)
 
 ```bash
 # on the server (any Linux with Docker + the compose plugin)
@@ -39,7 +57,7 @@ git clone <your public repo url> lineage && cd lineage
 cp .env.example .env
 # edit .env: set a long random FALKORDB_PASSWORD, and CORS_ORIGINS to your Vercel URL (comma-separated if several)
 # optional: LLM_BASE_URL, LLM_API_KEY, LLM_MODEL to enable the chat
-docker compose up -d --build        # [tested locally]
+docker compose -f docker-compose.stack.yml up -d --build        # [tested locally]
 ```
 
 What happens: FalkorDB starts and becomes healthy, a one-shot `loader` container loads `snapshot/*.jsonl` into the graph and
@@ -88,21 +106,3 @@ and check `docker compose ps` once after submission. The snapshot is a point-in-
 ## Costs
 
 The software is free. The only possible cost is the server. Check the hackathon organisers about hosting credits before paying anyone.
-
-## Hugging Face Spaces (Docker SDK, free CPU): exact steps
-
-Tested locally: the assembled folder builds and boots as user 1000 (what Spaces uses) with no keys, and every endpoint answers. Cold start to healthy took about 10 seconds here; allow 1-2 minutes on the free CPU, plus the first image build (about 5 minutes; the image is about 2 GB because it carries the local embedding model, 4 minutes to build here).
-
-1. **Make the folder.** In the repo run `sh deploy/make_space.sh`. It writes `space_build/` (about 24 MB; `snapshot/prs.jsonl` is 10 MB and `snapshot/chunks.jsonl` 8 MB): a root `Dockerfile` (= `Dockerfile.single`), the README with the Spaces YAML header (`sdk: docker`, `app_port: 7860`), the code, `snapshot/` and the web sources. No secrets, no raw data.
-2. **Create the Space.** huggingface.co, avatar menu, **New Space**. Name it (for example `lineage`), choose **Docker** as the SDK and **Blank** as the template, hardware **CPU basic (free)**, visibility **Public**, then **Create Space**.
-3. **Add secrets** (Space page, **Settings**, **Variables and secrets**). New **secrets**: `GEMINI_API_KEY`, `GROQ_API_KEY`. New **variables**: `GEMINI_MODEL` = `gemini-3.1-flash-lite`, `GROQ_MODEL` = the model name in your `.env`, `LLM_MIN_INTERVAL` = `5`, `ASK_PER_IP_PER_HOUR` = `12`, `ASK_PER_DAY` = `150`. (Use a key you created for the demo, not your main one.)
-4. **Upload the files.** Hugging Face rejects ordinary git pushes of files over 10 MB, and `snapshot/prs.jsonl` is just over: upload through the web page (it handles large files) or `huggingface-cli upload <you>/<space> space_build . --repo-type space`; with plain git you would first need `git lfs track "*.jsonl"`. Easiest: on the Space page choose **Files**, **Add file**, **Upload files**, drag in the *contents* of `space_build/` (not the folder itself), and commit. Alternative with git: `git clone https://huggingface.co/spaces/<you>/<space>`, copy the contents in, commit and push (use an access token with write permission as the password).
-5. **Wait for the build.** The **App** tab shows the build log, then "Running". Open the page: Findings should list 2 findings and 4 review items; the footer of the About page shows the snapshot date and commit SHAs.
-   Command-line route (needs a **write** access token from huggingface.co/settings/tokens): `pip install -U huggingface_hub`, `huggingface-cli login`, then `huggingface-cli upload <you>/<space> space_build . --repo-type space`.
-6. **Smoke test** (replace the host with your Space's direct URL, `https://<you>-<space>.hf.space`):
-   - `/api/health` returns `"status":"ok"` and `"llm_configured":true` (false is fine too: the saved answers still work).
-   - Findings page: 2 findings and 4 review items; open **Resource Quotas**: "The docs say" next to "Verified history", and the "Trusted without a hand check" note.
-   - Ask page: click "Why is the Resource Quotas page stale?" (a saved answer, instant), tick **Answer with plain retrieval too** and click it again (two columns); click the two refusal questions (Unknown entity, no key needed).
-   - `/api/search?q=Which design document introduced LocalStorageCapacityIsolation` returns `"status":"ok"`; `/api/changes-since?since=latest` returns a summary; **What changed** and **Insights** pages load (Insights is slow for about 30 s after a cold start while the ownership scan warms).
-   - MCP: `npx @modelcontextprotocol/inspector --cli https://<you>-<space>.hf.space/mcp/ --transport http --method tools/list` lists 11 tools.
-7. **Keep it alive.** Free Spaces sleep after a period of inactivity and the graph rebuilds from the snapshot on wake (about a minute); open the page shortly before judging windows. Do not store anything you need on the Space: it has no persistent disk by design.

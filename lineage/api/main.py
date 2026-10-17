@@ -156,7 +156,9 @@ def health(g: Graph = Depends(get_graph)) -> Health:
         detail = None
     except Exception as e:  # report, do not crash
         db, detail = False, str(e)[:120]
-    return Health(status="ok" if db else "degraded", database=db, graph=g.name, llm_configured=llm_ok, detail=detail)
+    from lineage.agent.local_embeddings import available
+
+    return Health(status="ok" if db else "degraded", database=db, graph=g.name, llm_configured=llm_ok, detail=detail, embeddings=available())
 
 
 ANSWER_CACHE = AnswerCache()
@@ -174,11 +176,24 @@ def embedder():
     return _EMBEDDER
 
 
-def get_retriever(g: Graph = Depends(get_graph)):
-    """The plain-retrieval baseline's retriever: FalkorDB's vector index with the local embedding model (overridable in tests)."""
-    from lineage.search.vector import FalkorRetriever
+_TFIDF = None
 
-    return FalkorRetriever(g, embedder())
+
+def get_retriever(g: Graph = Depends(get_graph)):
+    """The plain-retrieval baseline's retriever (overridable in tests): FalkorDB's vector index with the local embedding model; in the slim build, keyword (TF-IDF) retrieval over the same passages."""
+    from lineage.agent.local_embeddings import available
+
+    if available():
+        from lineage.search.vector import FalkorRetriever
+
+        return FalkorRetriever(g, embedder())
+    global _TFIDF
+    if _TFIDF is None:
+        from lineage.search.corpus import build_corpus
+        from lineage.search.tfidf import Retriever
+
+        _TFIDF = Retriever(build_corpus())
+    return _TFIDF
 
 
 RECENT_ANSWERS: "OrderedDict[str, dict]" = OrderedDict()  # answer_id -> {session, question, response}: what a note may be saved from (newest 300)
@@ -482,6 +497,10 @@ def _info(digest: dict, current: bool) -> SnapshotInfo:
 def search(q: str = Query(..., min_length=3, max_length=300), k: int = Query(5, ge=1, le=8), g: Graph = Depends(get_graph)) -> SearchResponse:
     """Text search without an LLM: the question is embedded locally and matched against the FalkorDB vector index, then each hit is expanded along the graph
     (same evidence bundle as the agent's search_text tool; passages less similar than the floor are not returned)."""
+    from lineage.agent.local_embeddings import SLIM_NOTE, available
+
+    if not available():
+        return SearchResponse(query=q, status="unavailable", evidence=[], path=[], note="Text search " + SLIM_NOTE + ".")
     b = ToolBox(g, embedder=embedder()).search_text(q, k)
     return SearchResponse(query=q, status=b["status"], evidence=b["evidence"], path=b["path"], note=b["params"].get("note"))
 

@@ -1,0 +1,27 @@
+# Render Blueprint for a FREE web service running the slim image (no embedding model). NOT verified end to end: see docs/deploy.md for the manual click steps, which are the safer route.
+# Free instances sleep after 15 minutes without traffic and take about a minute to wake; the graph is rebuilt from the committed snapshot at every start; nothing persists.
+services:
+  - type: web
+    name: lineage
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile.slim
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: false
+    envVars:
+      # PORT is injected by Render; the container listens on it (deploy/start.sh).
+      - key: GEMINI_API_KEY
+        sync: false          # you enter these in the dashboard; they are never stored in this file
+      - key: GEMINI_MODEL
+        value: gemini-3.1-flash-lite
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        sync: false
+      - key: LLM_MIN_INTERVAL
+        value: "5"
+      - key: ASK_PER_IP_PER_HOUR
+        value: "12"
+      - key: ASK_PER_DAY
+        value: "150"

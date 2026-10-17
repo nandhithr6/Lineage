@@ -18,6 +18,16 @@ MAX_CHUNK_TOKENS = 400  # well below the model's 512-token window, which also ho
 DEFAULT_CACHE = Path(os.environ.get("FASTEMBED_CACHE", "data/cache/fastembed"))
 
 
+def available() -> bool:
+    """True when the local embedding model can be used here: fastembed is installed and the build is not the slim one (LINEAGE_SLIM=1)."""
+    import importlib.util
+
+    return os.environ.get("LINEAGE_SLIM") != "1" and importlib.util.find_spec("fastembed") is not None
+
+
+SLIM_NOTE = "needs the local embedding model, which is not in this slim build; it is available in the local setup (docker compose up)"
+
+
 class LocalEmbedder:
     """Same interface as GeminiEmbedder.embed(texts, task) so retrievers can use either."""
 

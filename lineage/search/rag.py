@@ -23,6 +23,7 @@ def rag_prompt(question: str, hits: list[tuple[Passage, float]]) -> list[dict]:
 def answer_with_retrieval(llm, retriever, question: str, k: int = 5) -> dict:
     """An AskResponse-shaped dict for the retrieval answerer. Passages become evidence items e1..ek so the UI's citation chips and source links work unchanged."""
     t0 = time.perf_counter()
+    name = getattr(retriever, "name", "vector")  # "vector" (FalkorDB index + local embeddings) or "tfidf" (the slim build)
     hits = retriever.search(question, k)
     search_ms = round((time.perf_counter() - t0) * 1000)
     text = (llm.chat(rag_prompt(question, hits), []).text or "").strip()
@@ -33,5 +34,5 @@ def answer_with_retrieval(llm, retriever, question: str, k: int = 5) -> dict:
     cited = list(dict.fromkeys(re.findall(r"e(\d+)", " ".join(re.findall(r"\[(e\d+(?:\s*[,;]\s*e\d+)*)\]", text)))))
     citations = [e for e in evidence if e["id"][1:] in cited]
     return {"answer": text, "status": "ok" if citations else "uncited", "citations": citations, "evidence": evidence, "path": [],
-            "tool_trace": [{"tool": "vector_search", "params": {"query": question, "k": k}, "status": "ok", "evidence": len(evidence), "outcome": None, "duration_ms": search_ms, "unresolved": []}],
+            "retriever": name, "tool_trace": [{"tool": "vector_search" if name == "vector" else "keyword_search", "params": {"query": question, "k": k}, "status": "ok", "evidence": len(evidence), "outcome": None, "duration_ms": search_ms, "unresolved": []}],
             "outcome": None, "mode": "retrieval", "validation": {"accepted": True, "rejected": [], "note": "not validated: plain retrieval has no entity check, no validator and no refusal rule"}}

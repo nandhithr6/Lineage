@@ -5,7 +5,7 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 UV_LINK_MODE=copy UV_COMPILE_BY
 RUN pip install --no-cache-dir uv
 WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --extra embed
 ENV PATH="/app/.venv/bin:$PATH" FASTEMBED_CACHE=/opt/fastembed
 COPY lineage ./lineage
 COPY snapshot ./snapshot

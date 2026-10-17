@@ -306,13 +306,24 @@ class ToolBox:
             put(b, "node", "OwnershipGap", f"CodePath:kubernetes:{r['path']}", None, {k: v for k, v in r.items() if k != "path"} | {"window_months": months, "coverage": self.COVERAGE}, None)
         return b
 
+    def available_schemas(self) -> list[dict]:
+        """The tool schemas offered to the model: search_text is left out when the embedding model is not in this build, so the model never plans around a tool that cannot run."""
+        from lineage.agent.local_embeddings import available
+
+        return list(self.SCHEMAS) if available() else [s for s in self.SCHEMAS if s["name"] != "search_text"]
+
     def search_text(self, query: str, k: int = 5) -> dict:
         """Free-text search over docs sections, feature gates, design documents, teams and OWNERS text (FalkorDB vector index), then expand each hit along the graph:
         a docs hit shows the feature gate it is confidently about, a gate hit shows the design document and team behind it, a KEP hit shows its owning team."""
+        from lineage.agent.local_embeddings import SLIM_NOTE, available
         from lineage.search.vector import vector_search
 
         k = min(max(int(k), 1), 8)
         b = bundle("search_text", {"query": query, "k": k})
+        if not available():
+            b["status"] = "insufficient_evidence"
+            b["params"]["note"] = "search_text " + SLIM_NOTE
+            return b
         hits = [h for h in vector_search(self.g, self.embedder.embed_query(query), k) if h["similarity"] >= SEARCH_FLOOR]
         for h in hits:
             lines = f"L{h['line_start']}-L{h['line_end']}" if h["line_start"] else None

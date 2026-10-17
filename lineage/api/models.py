@@ -24,6 +24,7 @@ class Health(BaseModel):
     graph: str
     llm_configured: bool
     detail: str | None = None
+    embeddings: bool = True  # false in the slim build: no local embedding model, so no vector search and the contrast toggle uses keyword retrieval
 
 
 class AskRequest(BaseModel):
@@ -59,6 +60,7 @@ class AskResponse(BaseModel):
     session_id: str | None = None
     outcome: Literal["answered_with_path", "answered_from_memory", "not_in_graph", "unknown_entity"] | None = "answered_with_path"  # None in retrieval mode: there is no graph path to judge
     mode: Literal["graph", "retrieval"] = "graph"
+    retriever: str | None = None  # retrieval mode: "vector" (FalkorDB index + local embeddings) or "tfidf" (the slim build)
     validation: dict[str, Any] = {"accepted": True, "rejected": []}  # the answer validator's verdict; when not accepted, `draft` holds the withheld model text
     answer_id: str | None = None  # server-side handle of this answer, so a validated one can be saved as a note without the client sending any text
     can_save: bool = False
@@ -231,7 +233,7 @@ class OrphanRow(BaseModel):
 
 class SearchResponse(BaseModel):
     query: str
-    status: Literal["ok", "empty", "insufficient_evidence"]
+    status: Literal["ok", "empty", "insufficient_evidence", "unavailable"]
     evidence: list[Evidence]
     path: list[str]
     note: str | None = None

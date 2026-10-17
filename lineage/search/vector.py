@@ -27,6 +27,8 @@ class FalkorRetriever:
     Same `.search(query, k) -> [(Passage, score)]` shape as the TF-IDF and in-memory retrievers, so run_qa treats it like any other baseline.
     """
 
+    name = "vector"
+
     def __init__(self, g: Graph, embedder) -> None:
         self.g, self.embedder = g, embedder
 
