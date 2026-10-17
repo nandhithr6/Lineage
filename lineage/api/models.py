@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Evidence(BaseModel):
@@ -29,13 +29,23 @@ class Health(BaseModel):
 class AskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=1000)
     session_id: str | None = Field(None, max_length=64)
+    mode: Literal["graph", "retrieval"] = "graph"  # "retrieval" = the plain vector-retrieval baseline (no tools, no graph) for the side-by-side contrast
+
+
+class SaveNoteRequest(BaseModel):
+    answer_id: str = Field(min_length=6, max_length=64)
+    session_id: str = Field(min_length=6, max_length=64)
 
 
 class ToolStep(BaseModel):
     tool: str
-    params: dict[str, Any]
+    params: dict[str, Any]  # the arguments the model passed
     status: str
-    evidence: int
+    evidence: int  # rows (evidence items) the tool returned
+    given: dict[str, Any] | None = None  # what the model passed, when validation normalised it (e.g. letter case)
+    outcome: str | None = None  # answered_with_path | not_in_graph | unknown_entity
+    duration_ms: int | None = None
+    unresolved: list[dict[str, Any]] = []  # names the graph did not know, with "did you mean" text
 
 
 class AskResponse(BaseModel):
@@ -47,6 +57,15 @@ class AskResponse(BaseModel):
     tool_trace: list[ToolStep]
     unsupported_citations: list[str] = []
     session_id: str | None = None
+    outcome: Literal["answered_with_path", "answered_from_memory", "not_in_graph", "unknown_entity"] | None = "answered_with_path"  # None in retrieval mode: there is no graph path to judge
+    mode: Literal["graph", "retrieval"] = "graph"
+    validation: dict[str, Any] = {"accepted": True, "rejected": []}  # the answer validator's verdict; when not accepted, `draft` holds the withheld model text
+    answer_id: str | None = None  # server-side handle of this answer, so a validated one can be saved as a note without the client sending any text
+    can_save: bool = False
+    memory: list[dict[str, Any]] = []  # this session's notes about the entities in the question, each re-verified against the graph just now
+    cached: bool = False  # true when this is a saved answer for a demo question (same evidence the tools returned when it was saved)
+    cached_at: str | None = None
+    snapshot_id: str | None = None
 
 
 class FindingSummary(BaseModel):
@@ -111,8 +130,35 @@ class EntityResponse(BaseModel):
     truncated: bool = False
 
 
+class SnapshotInfo(BaseModel):
+    id: str  # the snapshot date, usable as ?since=
+    snapshot_date: str
+    age_days: int
+    sources: list[dict[str, Any]]
+    is_current: bool
+
+
+class SnapshotList(BaseModel):
+    current: SnapshotInfo
+    previous: list[SnapshotInfo]
+
+
+class ChangesSince(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    from_: dict[str, Any] = Field(alias="from")
+    to: dict[str, Any]
+    summary: dict[str, int]
+    findings: dict[str, list[dict[str, Any]]]
+    gates: list[dict[str, Any]]
+    labels: list[dict[str, Any]]
+    keps: dict[str, Any]
+    ownership: dict[str, Any]
+    caveats: list[str]
+
+
 class AboutData(BaseModel):
     snapshot_date: str | None
+    age_days: int | None = None
     sources: list[dict[str, Any]]
     counts: dict[str, int]
     detector: dict[str, int]
@@ -181,3 +227,47 @@ class OrphanRow(BaseModel):
     listed_approvers: int
     active_people: int
     active_but_not_listed: list[str]
+
+
+class SearchResponse(BaseModel):
+    query: str
+    status: Literal["ok", "empty", "insufficient_evidence"]
+    evidence: list[Evidence]
+    path: list[str]
+    note: str | None = None
+
+
+class DormantRow(BaseModel):
+    path: str
+    listed_approvers: int
+
+
+class GapRow(BaseModel):
+    path: str
+    listed_approvers: int
+    active_approvers: int
+    inactive_approvers: int
+    inactive_share: float
+    active_people: int
+    other_active_people: int
+    no_activity_data: bool
+    inactive_examples: list[str]
+
+
+class KeyReviewer(BaseModel):
+    rank: int
+    handle: str
+    score: float
+    authors_served: int
+    reviews: int
+    approver_of_folders: int
+    listed_approver: bool
+
+
+class InsightsResponse(BaseModel):
+    months: int
+    ownership_gaps: list[GapRow]
+    orphaned: list[OrphanRow]
+    dormant: list[DormantRow]
+    key_reviewers: list[KeyReviewer]
+    notes: list[str]
