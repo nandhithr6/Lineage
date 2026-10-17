@@ -5,10 +5,14 @@ the source_url that proves them; provenance comes from here, never from the LLM.
 """
 from __future__ import annotations
 
+import time
+
 from falkordb import Graph
 
-from lineage.graph.queries import LATEST, effective_owners, experts_for, gate_stage_change, official_vs_actual, orphaned_components, owners_diff
-from lineage.graph.trace import Q_HISTORY, Q_KEPS, SEVERITY_ORDER, build_trace, rank_keps, stage_ranges
+from lineage.agent.resolve import RESOLVERS, Resolution, resolve_entity, resolve_gate_or_path, resolve_path
+from lineage.graph.queries import (LATEST, SAMPLED_RELEASES, effective_owners, experts_for, gate_stage_change, official_vs_actual, orphaned_components, owners_diff, ownership_gaps,
+                                   review_network_top)
+from lineage.graph.trace import PR_STRONG, Q_HISTORY, Q_KEP_PR_COUNTS, Q_KEP_PRS, Q_KEPS, SEVERITY_ORDER, build_trace, rank_keps, stage_ranges
 
 MAX_EVIDENCE = 40
 
@@ -40,9 +44,34 @@ def release_num(as_of: str | int | None) -> int:
     return int(major) * 100 + int(minor)
 
 
+def ownership_release_problem(num: int, repo: str) -> str | None:
+    """Why ownership cannot be answered "as of" this release, or None. Anything outside the sampled releases must be refused, never answered with the latest data:
+    a release in the future (or before 1.30) has no record, and silently returning today's owners would be a false statement of fact."""
+    if repo != "kubernetes" and num != LATEST:
+        return ("the ownership history of the website (docs) repository holds only the latest commit, so there is no record of who owned it in an earlier release")
+    if num > LATEST:
+        return (f"release 1.{num % 100} is newer than the data: ownership is recorded at releases 1.30-1.37 and at the latest commit (1.38-dev), "
+                "and the future cannot be known")
+    if num not in SAMPLED_RELEASES:
+        return "ownership history is available for kubernetes/kubernetes at releases 1.30-1.37 and latest only"
+    return None
+
+
+SEARCH_FLOOR = 0.55  # cosine similarity below which a chunk is not evidence. Calibrated on 2026-10-16: off-topic questions top out at 0.48, on-topic ones start at 0.65 (DECISIONS.md)
+
+
 class ToolBox:
-    def __init__(self, g: Graph):
+    def __init__(self, g: Graph, embedder=None):
         self.g = g
+        self._embedder = embedder  # local bge-base model, created on first use (search_text only)
+
+    @property
+    def embedder(self):
+        if self._embedder is None:
+            from lineage.agent.local_embeddings import LocalEmbedder
+
+            self._embedder = LocalEmbedder()
+        return self._embedder
 
     # -- tools ------------------------------------------------------------------------------------------
     def drift_findings(self, severity: str | None = None, sig: str | None = None, limit: int = 20) -> dict:
@@ -69,6 +98,21 @@ class ToolBox:
         if t["status"] != "ok":
             out["evidence"], out["status"] = [], "insufficient_evidence"
         return out
+
+    def suggest_reviewers(self, query: str) -> dict:
+        """Who should review the fix for a finding, and why: docs approvers who can merge it, domain experts who can check the facts, each reason with its source. query = part of the page path or a finding key."""
+        t = build_trace(self.g, query)
+        b = bundle("suggest_reviewers", {"query": query})
+        if t["status"] != "ok":
+            b["status"] = "insufficient_evidence"
+            return b
+        for r in (t["sections"].get("reviewers") or [])[:8]:
+            for x in r["reasons"][:3]:
+                put(b, "edge", "SUGGESTED_REVIEWER", f"Person:{r['handle']}", f"Finding:{t['sections']['finding']['key']}",
+                    {"group": r["group"], "score": r["score"], "category": x["category"], "reason": x["reason"]}, x["source_url"])
+        if b["status"] == "ok":
+            b["path"] = [f"Finding:{t['sections']['finding']['key']}"]
+        return b
 
     def gate_timeline(self, gate: str) -> dict:
         """Stage history of a feature gate (alpha/beta/stable/deprecated ranges, whether it was removed)."""
@@ -116,10 +160,10 @@ class ToolBox:
         path = clean_path(path)
         is_file = path.endswith((".md", ".go", ".yaml", ".py"))
         b = bundle("owners_of", {"path": path, "repo": repo, "as_of": as_of or "latest"})
-        if num != LATEST and (repo != "kubernetes" or num < 130):  # say WHY there is no answer, so the model can stop instead of searching on
+        problem = ownership_release_problem(num, repo)
+        if problem:  # say WHY there is no answer, so the model can stop instead of searching on
             b["status"] = "insufficient_evidence"
-            b["params"]["note"] = ("ownership history is available for kubernetes/kubernetes at releases 1.30-1.37 and latest; "
-                                   "for the website (docs) repository only the latest commit is available, so there is no record of who owned it in an earlier release")
+            b["params"]["note"] = problem + ". Do not substitute the current owners for the requested release."
             return b
         rows = effective_owners(self.g, repo, path, num, is_file=is_file)
         seen: set[tuple] = set()
@@ -160,6 +204,13 @@ class ToolBox:
             for rel, other, url in self.g.ro_query("""MATCH (k:KEP {id: $k})-[r:REPLACES|SEE_ALSO|SUPERSEDED_BY]->(o:KEP) RETURN type(r), o.id, r.source_url LIMIT 6""",
                                                    {"k": k["id"]}).result_set:
                 put(b, "edge", rel, f"KEP:{k['id']}", f"KEP:{other}", {}, url)
+            if k is keps[0]:  # pull requests that implement the primary decision, and the tickets they close (inferred links: method + confidence shown)
+                strong, weak = (self.g.ro_query(Q_KEP_PR_COUNTS, {"k": k["id"], "min": PR_STRONG}).result_set or [[0, 0]])[0]
+                for num, title, merged, url, method, conf, ev, issues in self.g.ro_query(Q_KEP_PRS, {"k": k["id"], "min": PR_STRONG, "limit": 4}).result_set:
+                    put(b, "edge", "IMPLEMENTS", f"PR:{num}", f"KEP:{k['id']}", {"title": title, "merged_at": merged, "method": method, "confidence": conf, "evidence": ev,
+                                                                                  "note": f"{strong} PRs link to this KEP at confidence >= {PR_STRONG}, {weak} more only mention its feature gate"}, url)
+                    for i in [i for i in issues if i and i[0]][:2]:
+                        put(b, "edge", "FIXES", f"PR:{num}", f"Issue:{i[0]}", {"title": i[1], "state": i[2]}, i[3])
         if keps:
             b["path"] = [f"FeatureGate:{kep_or_gate}" if rows else f"query:{kep_or_gate}", f"KEP:{keps[0]['id']}"] + ([f"SIG:{keps[0]['sig']}"] if keps[0]["sig"] else [])
         return b
@@ -169,15 +220,22 @@ class ToolBox:
         a, b = release_num(from_release), release_num(to_release)
         bndl = bundle("what_changed", {"entity": entity, "from_release": from_release, "to_release": to_release, "repo": repo})
         if self.g.ro_query("MATCH (g:FeatureGate {name: $g}) RETURN g.source_url", {"g": entity}).result_set:
+            newest = self.g.ro_query("MATCH (r:Release) RETURN max(r.num)").result_set[0][0]
+            future = [n for n in (a, b) if n > max(newest, LATEST)]
+            if future:
+                bndl["status"] = "insufficient_evidence"
+                bndl["params"]["note"] = f"release 1.{future[0] % 100} is newer than the data (newest release recorded: 1.{newest % 100}); the future cannot be known"
+                return bndl
             c = gate_stage_change(self.g, entity, a, b)
             put(bndl, "edge", "STAGE_CHANGE", f"FeatureGate:{entity}", None,
                 {"from_release": from_release, "to_release": to_release, "stage_then": c["from"] or "none", "stage_now": c["to"] or "none",
                  "changed": c["from"] != c["to"]}, c["source_url"])
             bndl["path"] = [f"FeatureGate:{entity}"]
             return bndl
-        if min(a, b) < 130:
+        problem = next((p for p in (ownership_release_problem(a, repo), ownership_release_problem(b, repo)) if p), None)
+        if problem:
             bndl["status"] = "insufficient_evidence"
-            bndl["params"]["note"] = "ownership history is sampled only from release 1.30"
+            bndl["params"]["note"] = problem
             return bndl
         d = owners_diff(self.g, repo, entity.strip("/"), a, b, is_file=entity.endswith((".md", ".go", ".yaml", ".py")))
         for kind, rows in (("OWNER_ADDED", d["added"]), ("OWNER_REMOVED", d["removed"])):
@@ -224,7 +282,96 @@ class ToolBox:
                                                                                  "active_but_not_listed": o["unlisted_active"], "window_months": months, "coverage": self.COVERAGE}, None)
         if b["status"] == "empty":
             put(b, "node", "NoneFound", "CodePath:kubernetes", None, {"months": months, "coverage": self.COVERAGE}, None)
+        put(b, "node", "Caveat", "Orphaned", None, {"note": "Orphaned means other people worked in the folder but no listed approver was active. Folders with no activity at all are dormant (often stable code) and are not listed here."}, None)
         return b
+
+    def key_reviewers(self, limit: int = 10) -> dict:
+        """The most central people in the code-review network (FalkorDB PageRank over author-to-reviewer edges) and whether OWNERS lists them as approvers."""
+        b = bundle("key_reviewers", {"limit": limit})
+        for r in review_network_top(self.g, min(max(int(limit), 1), 25)):
+            put(b, "node", "ReviewNetworkRank", f"Person:{r['handle']}", None,
+                {"rank": r["rank"], "pagerank": r["score"], "authors_relying_on_them": r["authors_served"], "reviews": r["reviews"],
+                 "approver_of_folders_today": r["approver_of_folders"], "listed_approver": r["listed_approver"]}, None)
+        if b["status"] == "ok":
+            put(b, "node", "Caveat", "ReviewNetwork", None, {"note": "PageRank measures position in the review network among sig/storage, sig/node and sig/apps pull requests from the last two years "
+                                                              "(backports and repo-wide PRs excluded). It is NOT a measure of skill or ownership."}, None)
+        else:
+            b["status"] = "insufficient_evidence"
+        return b
+
+    def ownership_gaps(self, months: int = 12, limit: int = 8) -> dict:
+        """Code folders where OWNERS and reality disagree most: listed approvers with no activity in the last N months, or no active approver at all."""
+        b = bundle("ownership_gaps", {"months": months, "limit": limit})
+        for r in ownership_gaps(self.g, months, limit=min(max(int(limit), 1), 25)):
+            put(b, "node", "OwnershipGap", f"CodePath:kubernetes:{r['path']}", None, {k: v for k, v in r.items() if k != "path"} | {"window_months": months, "coverage": self.COVERAGE}, None)
+        return b
+
+    def search_text(self, query: str, k: int = 5) -> dict:
+        """Free-text search over docs sections, feature gates, design documents, teams and OWNERS text (FalkorDB vector index), then expand each hit along the graph:
+        a docs hit shows the feature gate it is confidently about, a gate hit shows the design document and team behind it, a KEP hit shows its owning team."""
+        from lineage.search.vector import vector_search
+
+        k = min(max(int(k), 1), 8)
+        b = bundle("search_text", {"query": query, "k": k})
+        hits = [h for h in vector_search(self.g, self.embedder.embed_query(query), k) if h["similarity"] >= SEARCH_FLOOR]
+        for h in hits:
+            lines = f"L{h['line_start']}-L{h['line_end']}" if h["line_start"] else None
+            put(b, "node", "Chunk", f"Chunk:{h['id']}", h["parent"], {"similarity": h["similarity"], "kind": h["kind"], "lines": lines, "text": h["text"][:700]}, h["source_url"])
+        seen: set[str] = set()
+        for h in hits:
+            parent = h["parent"]
+            if not parent or parent in seen:
+                continue
+            seen.add(parent)
+            label, _, key = parent.partition(":")
+            if label == "DocSection":
+                for gate, conf, cid, url in self.g.ro_query(
+                        "MATCH (s:DocSection {id: $k})-[:HAS_CLAIM]->(c:Claim)-[a:ABOUT]->(g:FeatureGate) WHERE a.link_confidence >= 0.8 RETURN g.name, a.link_confidence, c.id, a.source_url",
+                        {"k": key}).result_set:
+                    put(b, "edge", "ABOUT", f"Claim:{cid}", f"FeatureGate:{gate}", {"link_confidence": conf, "note": "confident automatic link from a docs label to a feature gate"}, url)
+            elif label == "FeatureGate":
+                for kep, sig, url in self.g.ro_query(
+                        "MATCH (k:KEP)-[i:INTRODUCES]->(g:FeatureGate {name: $k}) WHERE i.confidence >= 0.7 OPTIONAL MATCH (k)-[:OWNED_BY]->(s:SIG) RETURN k.id, s.id, i.source_url LIMIT 2",
+                        {"k": key}).result_set:
+                    put(b, "edge", "INTRODUCES", f"KEP:{kep}", f"FeatureGate:{key}", {"owning_team": sig}, url)
+            elif label == "KEP":
+                for sig, status, url in self.g.ro_query("MATCH (k:KEP {id: $k})-[o:OWNED_BY]->(s:SIG) RETURN s.id, k.status, o.source_url", {"k": key}).result_set:
+                    put(b, "edge", "OWNED_BY", f"KEP:{key}", f"SIG:{sig}", {"kep_status": status}, url)
+        if b["status"] == "ok":
+            b["path"] = [h["parent"] for h in hits if h["parent"]][:6]
+        elif not hits:
+            b["status"] = "insufficient_evidence"
+            b["params"]["note"] = "no stored passage is similar enough to the question"
+        return b
+
+    def path_between(self, a: str, b: str, max_hops: int = 4) -> dict:
+        """How two things in the graph are connected: the cheapest path between them (FalkorDB algo.SPpaths over ownership, membership, design-decision and docs-structure links),
+        returned hop by hop. a and b can each be a feature gate, person, team, SIG, KEP, folder or docs page."""
+        from lineage.agent.resolve import resolve_entity
+        from lineage.graph.paths import PathTimeout, describe_path, shortest_path
+
+        b_ = bundle("path_between", {"a": a, "b": b, "max_hops": max_hops})
+        ra, rb = resolve_entity(self.g, a), resolve_entity(self.g, b)
+        if not (ra.ok and rb.ok):  # call() already refuses unknown names; direct callers get the same answer
+            b_["status"] = "insufficient_evidence"
+            return b_
+        if (ra.label, ra.key) == (rb.label, rb.key):
+            b_["params"]["note"] = "both names are the same entity"
+            return b_
+        try:
+            p = shortest_path(self.g, (ra.label, ra.key), (rb.label, rb.key), max_hops)
+        except PathTimeout as e:
+            b_["status"] = "insufficient_evidence"
+            b_["params"]["note"] = f"{e}; try fewer hops"
+            return b_
+        if not p:
+            b_["params"]["note"] = f"both exist, but no path of up to {min(max_hops, 5)} hops connects them through ownership, membership, design decisions or docs structure"
+            return b_
+        for h in p["hops"]:
+            put(b_, "edge", h["type"], h["from"], h["to"], {"direction": h["direction"], **h["props"]}, h["source_url"])
+        b_["path"] = p["nodes"]
+        b_["params"]["summary"] = describe_path(p)
+        return b_
 
     def sig_leaders(self, sig: str) -> dict:
         """Chairs, tech leads and emeritus leads of a team (SIG, working group or committee) from the org chart."""
@@ -251,6 +398,8 @@ class ToolBox:
                                                          "sig": {"type": "string", "description": "team id such as sig-storage"}, "limit": {"type": "integer"}}}},
         {"name": "explain_finding", "description": "Full evidence trace for one drift finding: the claim, the linked gate, gate history, design decision, team and suggested reviewers.",
          "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "part of the docs page path, e.g. resource-quotas"}}, "required": ["query"]}},
+        {"name": "suggest_reviewers", "description": "Who should review the fix for a stale-docs finding and why: docs approvers (can merge) and domain experts (can check the facts), each reason with its source. query = part of the docs page path or a finding key.",
+         "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
         {"name": "gate_timeline", "description": "Stage history (alpha/beta/stable/deprecated) of a Kubernetes feature gate by exact name.",
          "parameters": {"type": "object", "properties": {"gate": {"type": "string"}}, "required": ["gate"]}},
         {"name": "doc_claims", "description": "Maturity labels on a docs page or section, with the feature gate each is linked to and how confident the link is.",
@@ -266,16 +415,74 @@ class ToolBox:
          "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "months": {"type": "integer"}}, "required": ["path"]}},
         {"name": "orphaned_components", "description": "Code folders whose listed approvers have all been inactive for the given number of months (default 12). Covers only sig-storage, sig-node and sig-apps.",
          "parameters": {"type": "object", "properties": {"months": {"type": "integer"}}}},
+        {"name": "key_reviewers", "description": "Who is most central in the code-review network (graph PageRank) and whether they are listed approvers. Covers sig-storage, sig-node, sig-apps PRs from the last two years.",
+         "parameters": {"type": "object", "properties": {"limit": {"type": "integer"}}}},
+        {"name": "ownership_gaps", "description": "Code folders where the OWNERS file and real review activity disagree most (listed approvers who went quiet).",
+         "parameters": {"type": "object", "properties": {"months": {"type": "integer"}, "limit": {"type": "integer"}}}},
+        {"name": "search_text", "description": "Free-text search when no other tool fits: finds the most similar passages (docs, feature gates, design documents, teams, OWNERS) and the graph facts around them. Use the specific tools first for owners, stages and findings.",
+         "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "k": {"type": "integer"}}, "required": ["query"]}},
+        {"name": "path_between", "description": "How two things are connected in the graph (a feature gate, person, team, SIG, KEP, folder or docs page): the shortest path between them, hop by hop, over ownership, membership, design decisions and docs structure. Use it for 'how is X related to Y'.",
+         "parameters": {"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "string"}, "max_hops": {"type": "integer"}}, "required": ["a", "b"]}},
         {"name": "sig_leaders", "description": "Chairs, tech leads and emeritus leads of a Kubernetes team (SIG), working group or committee, e.g. sig-storage.",
          "parameters": {"type": "object", "properties": {"sig": {"type": "string"}}, "required": ["sig"]}},
         {"name": "decision_lineage", "description": "The design decision (KEP) behind a feature gate or topic: status, owning team, authors, approvers, replaced or related KEPs.",
          "parameters": {"type": "object", "properties": {"kep_or_gate": {"type": "string"}}, "required": ["kep_or_gate"]}},
     ]
 
+    # Which arguments of which tool name an entity, and what kind. Every one is resolved against the graph BEFORE the tool runs (lineage/agent/resolve.py).
+    ENTITY_ARGS: dict[str, list[tuple[str, str]]] = {
+        "drift_findings": [("sig", "sig")],
+        "explain_finding": [("query", "finding")],
+        "suggest_reviewers": [("query", "finding")],
+        "gate_timeline": [("gate", "gate")],
+        "doc_claims": [("page_or_section", "page")],
+        "owners_of": [("path", "path"), ("as_of", "release")],
+        "decision_lineage": [("kep_or_gate", "kep_or_gate")],
+        "experts_for": [("path", "path")],
+        "what_changed": [("entity", "gate_or_path"), ("from_release", "release"), ("to_release", "release")],
+        "sig_leaders": [("sig", "sig")],
+        "path_between": [("a", "entity"), ("b", "entity")],
+    }
+
+    def resolve_arguments(self, name: str, arguments: dict) -> tuple[dict, list[Resolution]]:
+        """Resolve each entity argument; returns the arguments with canonical names (same name, normalised) and the failed resolutions."""
+        out, failed = dict(arguments), []
+        for arg, kind in self.ENTITY_ARGS.get(name, []):
+            value = arguments.get(arg)
+            if value in (None, "") and kind not in ("page", "finding"):
+                continue
+            repo = arguments.get("repo", "kubernetes")
+            r = (resolve_path(self.g, str(value), repo) if kind == "path" else resolve_gate_or_path(self.g, str(value), repo) if kind == "gate_or_path"
+                 else resolve_entity(self.g, str(value), repo) if kind == "entity"
+                 else RESOLVERS[kind](self.g, str(value) if kind != "release" else value))
+            if r.ok:
+                if r.canonical is not None and kind in ("gate", "sig", "path"):
+                    out[arg] = r.canonical
+            else:
+                failed.append((arg, r))
+        return out, failed
+
     def call(self, name: str, arguments: dict) -> dict:
+        t0 = time.perf_counter()
         if name not in {s["name"] for s in self.SCHEMAS}:
-            return {"tool": name, "params": arguments, "evidence": [], "path": [], "status": "insufficient_evidence", "error": "unknown tool"}
+            return {"tool": name, "params": arguments, "evidence": [], "path": [], "status": "insufficient_evidence", "outcome": "unknown_entity", "error": "unknown tool",
+                    "duration_ms": 0, "rows": 0}
         try:
-            return getattr(self, name)(**arguments)
+            args, failed = self.resolve_arguments(name, arguments)
+            if failed:  # no traversal runs for a name the graph does not know
+                b = bundle(name, dict(arguments))
+                b["status"], b["outcome"] = "insufficient_evidence", "unknown_entity"
+                b["unresolved"] = [r.as_dict(arg) for arg, r in failed]
+                b["params"]["note"] = "; ".join(
+                    f"unknown {r.kind} {r.given!r}: {r.note}" + (f" (did you mean: {', '.join(r.suggestions)}?)" if r.suggestions else "") for _, r in failed
+                ) + ". No lookup was run for it; the suggestions are not facts and must not be substituted."
+            else:
+                b = getattr(self, name)(**args)
+                b["outcome"] = "answered_with_path" if b["status"] == "ok" else "not_in_graph"
         except TypeError as e:  # wrong arguments from the model
-            return {"tool": name, "params": arguments, "evidence": [], "path": [], "status": "insufficient_evidence", "error": f"bad arguments: {e}"}
+            return {"tool": name, "params": arguments, "evidence": [], "path": [], "status": "insufficient_evidence", "outcome": "not_in_graph", "error": f"bad arguments: {e}",
+                    "duration_ms": round((time.perf_counter() - t0) * 1000), "rows": 0}
+        b["validated_args"] = args if not failed else dict(arguments)  # the arguments the tool actually ran with (canonical names), or the given ones when none ran
+        b["duration_ms"] = round((time.perf_counter() - t0) * 1000)
+        b["rows"] = len(b["evidence"])
+        return b
