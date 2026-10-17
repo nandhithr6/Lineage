@@ -1,0 +1,61 @@
+{
+ "status": "DRAFT gold questions",
+ "model": "gemini-3.1-flash-lite",
+ "provider": "gemini only (no fallback)",
+ "systems": [
+  "lineage"
+ ],
+ "llm_stats": {
+  "gemini": {
+   "requests": 101,
+   "retries": 3,
+   "rate_limited": 0,
+   "errors": 0
+  }
+ },
+ "questions_run": 42,
+ "summary": {
+  "lineage": {
+   "n_answerable": 36,
+   "n_unanswerable": 6,
+   "accuracy": 0.972,
+   "accuracy_among_answered": 0.972,
+   "n_answered": 36,
+   "source_correct": 0.944,
+   "refusal_quality": 1.0,
+   "errors": 0,
+   "by_category": {
+    "ownership": {
+     "n": 6,
+     "accuracy": 1.0
+    },
+    "expertise": {
+     "n": 6,
+     "accuracy": 1.0
+    },
+    "time_travel": {
+     "n": 6,
+     "accuracy": 1.0
+    },
+    "decision_lineage": {
+     "n": 6,
+     "accuracy": 1.0
+    },
+    "drift": {
+     "n": 6,
+     "accuracy": 0.833
+    },
+    "multi_hop": {
+     "n": 6,
+     "accuracy": 1.0
+    }
+   },
+   "median_latency_s": 12.03
+  }
+ },
+ "refusal_scoring": {
+  "original_word_list": "4/6",
+  "extended_word_list": "6/6",
+  "note": "words 'unknown entity', 'do not know', 'does not include', 'is not included' added after the run"
+ }
+}

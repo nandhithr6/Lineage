@@ -30,7 +30,10 @@ from lineage.graph.client import connect
 from lineage.link.linker import read_jsonl
 
 RESULTS = Path("eval/results")
-REFUSAL_WORDS = ["insufficient evidence", "cannot", "can't", "can not", "no data", "not available", "don't have", "do not have", "unable", "not contain", "no information"]
+REFUSAL_WORDS_ORIGINAL = ["insufficient evidence", "cannot", "can't", "can not", "no data", "not available", "don't have", "do not have", "unable", "not contain", "no information"]
+# Added on 2026-10-17 AFTER the first run with name resolution, because the product now says "Unknown entity: I do not know a ..." for an unresolved name, which is a refusal the
+# original list cannot see, and "does not include" is an ordinary way to say an email address is not held. Both scores are reported (eval/README.md).
+REFUSAL_WORDS = REFUSAL_WORDS_ORIGINAL + ["unknown entity", "do not know", "does not include", "is not included"]
 CATEGORIES = ["ownership", "expertise", "time_travel", "decision_lineage", "drift", "multi_hop"]
 
 
@@ -82,13 +85,56 @@ def source_hit(gold: list[str], urls: set[str]) -> bool:
     return bool(gold) and bool({norm(g) for g in gold} & {norm(u) for u in urls if u})
 
 
-def evaluate_answer(q: dict, answer: str, cited_urls: set[str]) -> dict:
-    """Score one written answer (LLM mode)."""
+_PR_INDEX: dict[str, dict] | None = None
+
+
+def pr_index(path: Path = Path("snapshot/prs.jsonl")) -> dict[str, dict]:
+    global _PR_INDEX
+    if _PR_INDEX is None:
+        _PR_INDEX = {r["url"]: r for r in read_jsonl(path)} if path.exists() else {}
+    return _PR_INDEX
+
+
+def named_handles(q: dict, answer: str) -> set[str]:
+    """Handles from the question's own accepted list that the answer actually names."""
+    low = answer.lower()
+    out = set()
+    for check in q["checks"]:
+        for item in check.get("any", []):
+            handle = item if isinstance(item, str) else item[0]
+            if handle.lower() in low:
+                out.add(handle.lower())
+    return out
+
+
+def expertise_source_ok(q: dict, answer: str, cited_urls: set[str], prs: dict[str, dict] | None = None) -> bool:
+    """An expertise answer is proved by ANY pull request that touched the folder and was reviewed by a person the answer names.
+
+    The gold file lists three sample PRs per question, but a reviewer has many, and the tool cites that person's most recent one: demanding the three samples marks a
+    correct, verifiable citation as wrong (found in the held-out run: 5 of 5 expertise answers were right and all 5 'sources' failed). This rule checks the claim itself against the snapshot."""
+    prs = pr_index() if prs is None else prs
+    path = q["oracle_tool"]["args"]["path"].strip("/")
+    people = named_handles(q, answer)
+    for url in cited_urls:
+        pr = prs.get(norm(url))
+        if not pr or not any(d == path or d.startswith(path + "/") for d in pr.get("dirs", [])):
+            continue
+        reviewers = {x["login"].lower() for x in pr.get("reviews", [])}
+        if people & reviewers:
+            return True
+    return False
+
+
+def evaluate_answer(q: dict, answer: str, cited_urls: set[str], prs: dict[str, dict] | None = None) -> dict:
+    """Score one written answer (LLM mode). `source_ok_strict` is the original rule (a listed gold source was cited); `source_ok` also accepts, for expertise questions,
+    a cited PR that really shows the claim (see expertise_source_ok)."""
     if q["category"] == "unanswerable":
         refused = passes(q["checks"], answer, True)
         return {"correct": refused, "source_ok": None, "refused": refused}
     ok = passes(q["checks"], answer, True)
-    return {"correct": ok, "source_ok": source_hit(q["sources"], cited_urls), "refused": any(w in answer.lower() for w in REFUSAL_WORDS)}
+    strict = source_hit(q["sources"], cited_urls)
+    lenient = strict or ((q.get("oracle_tool") or {}).get("name") == "experts_for" and expertise_source_ok(q, answer, cited_urls, prs))
+    return {"correct": ok, "source_ok": lenient, "source_ok_strict": strict, "refused": any(w in answer.lower() for w in REFUSAL_WORDS)}
 
 
 # --- retrieval-only -------------------------------------------------------------------------------------
@@ -130,8 +176,9 @@ def answer_lineage(q: dict, llm: LLM, tools: ToolBox) -> dict:
         res = run_agent(llm, tools, q["question"])
     except ProviderError as e:
         return {"error": str(e)[:200], "answer": "", "correct": False, "source_ok": False, "refused": False, "latency": time.perf_counter() - t0, "status": "error"}
-    a = evaluate_answer(q, res.answer, {e["source_url"] for e in res.citations if e.get("source_url")})
-    return {**a, "answer": res.answer, "latency": time.perf_counter() - t0, "status": res.status, "tools": [t["tool"] for t in res.tool_trace], "iterations": res.iterations,
+    cited = {e["source_url"] for e in res.citations if e.get("source_url")}
+    a = evaluate_answer(q, res.answer, cited)
+    return {**a, "cited_urls": sorted(cited), "answer": res.answer, "latency": time.perf_counter() - t0, "status": res.status, "tools": [t["tool"] for t in res.tool_trace], "iterations": res.iterations,
             "unsupported_citations": res.unsupported_citations}
 
 
@@ -146,14 +193,20 @@ def answer_rag(q: dict, llm: LLM, retriever) -> dict:
     return {**evaluate_answer(q, text, {u for u in cited if u}), "answer": text, "latency": time.perf_counter() - t0, "status": "ok", "retrieved": [p.id for p, _ in hits]}
 
 
-def llm_mode(questions: list[dict], llm: LLM, tools: ToolBox, retriever, systems: tuple[str, ...] | None = None, out: Path | None = None) -> list[dict]:
+def llm_mode(questions: list[dict], llm: LLM, tools: ToolBox, retriever, systems: tuple[str, ...] | None = None, out: Path | None = None,
+             retry_errors: bool = False) -> list[dict]:
     """Run each system on each question with the SAME llm, appending every result to `out` (JSON lines) so a long, rate-limited run can resume.
 
     `retriever` is one retriever (system name "rag") or a dict of name -> retriever (systems "rag_tfidf", "rag_embedding", ...).
     """
     retrievers = retriever if isinstance(retriever, dict) else {"rag": retriever}
     systems = systems or ("lineage", *retrievers)
-    done = {(r["id"], r["system"]): r for r in (read_jsonl(out) if out and out.exists() else [])}
+    existing = read_jsonl(out) if out and out.exists() else []
+    if retry_errors:  # an outage on the provider's side is not a wrong answer: rerun ONLY those rows (same questions, nothing edited)
+        existing = [r for r in existing if r.get("status") != "error"]
+        if out:
+            out.write_text("".join(json.dumps(r, default=str) + "\n" for r in existing))
+    done = {(r["id"], r["system"]): r for r in existing}
     rows = list(done.values())
     for q in questions:
         for system in systems:
@@ -178,7 +231,9 @@ def summarise_llm(rows: list[dict]) -> dict:
         frac = lambda xs, k: round(sum(bool(r[k]) for r in xs) / len(xs), 3) if xs else None  # noqa: E731
         errs = [r for r in rs if r.get("error")]
         by_cat = {c: {"n": len(g), "accuracy": frac(g, "correct")} for c in CATEGORIES if (g := [r for r in ans if r["category"] == c])}
-        out[system] = {"n_answerable": len(ans), "n_unanswerable": len(un), "accuracy": frac(ans, "correct"), "source_correct": frac(ans, "source_ok"),
+        answered = [r for r in ans if not r.get("error")]
+        out[system] = {"n_answerable": len(ans), "n_unanswerable": len(un), "accuracy": frac(ans, "correct"), "accuracy_among_answered": frac(answered, "correct"),
+                       "n_answered": len(answered), "source_correct": frac(ans, "source_ok"),
                        "refusal_quality": frac(un, "correct"), "errors": len(errs), "by_category": by_cat,
                        "median_latency_s": round(statistics.median(r["latency"] for r in rs), 2) if rs else None}
     return out
@@ -226,13 +281,29 @@ def to_png(svg_path: Path, png_path: Path) -> bool:
     return png_path.exists()
 
 
+def verify_frozen(gold_path: Path) -> None:
+    """A pre-registered question file must still hash to the value recorded when it was frozen; otherwise refuse to score it."""
+    freeze = Path("eval/results/heldout_freeze.json")
+    if gold_path.name != "gold_heldout.jsonl":
+        return
+    import hashlib
+    rec = json.loads(freeze.read_text())
+    got = hashlib.sha256(gold_path.read_bytes()).hexdigest()
+    if got != rec["sha256"]:
+        raise SystemExit(f"{gold_path} no longer matches its freeze record ({got[:12]} != {rec['sha256'][:12]}): the held-out set was edited. Refusing to score it.")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["retrieval", "llm", "chart-llm"], default="retrieval")
     ap.add_argument("--chart", action="store_true")
-    ap.add_argument("--systems", default="lineage,rag_tfidf", help="comma list for --mode llm: lineage, rag_tfidf, rag_embedding")
+    ap.add_argument("--systems", default="lineage,rag_tfidf", help="comma list for --mode llm: lineage, rag_tfidf, rag_vector (FalkorDB vector index, local bge-base embeddings), rag_embedding (old: hosted embeddings, quota-bound)")
+    ap.add_argument("--retriever", choices=["tfidf", "vector"], default="tfidf", help="retrieval mode only: the baseline's retriever (vector = FalkorDB vector index)")
     ap.add_argument("--limit", type=int, default=0, help="only the first N questions (smoke test)")
     ap.add_argument("--only", default="", help="comma list of question ids")
+    ap.add_argument("--gold", default="eval/gold_questions.jsonl", help="question file; the frozen held-out set is eval/gold_heldout.jsonl")
+    ap.add_argument("--tag", default="", help="suffix for result files, e.g. _heldout")
+    ap.add_argument("--retry-errors", action="store_true", help="rerun only rows that failed because the provider failed (never while another run is writing the file)")
     args = ap.parse_args()
     if args.mode == "chart-llm":  # draw the real LLM-run result from the saved summary; no model or graph calls
         S = json.loads((RESULTS / "qa_llm_summary.json").read_text())["summary"]
@@ -246,13 +317,21 @@ def main() -> None:
         return
     s = load_settings()
     tools = ToolBox(connect(s).select_graph(s.falkordb_graph))
-    questions = read_jsonl(Path("eval/gold_questions.jsonl"))
-    retriever = Retriever(build_corpus())  # TF-IDF; replaced by the embedding retriever in --mode llm
+    gold_path = Path(args.gold)
+    verify_frozen(gold_path)
+    questions = read_jsonl(gold_path)
+    retriever = Retriever(build_corpus())  # TF-IDF unless --retriever vector
+    if args.mode == "retrieval" and args.retriever == "vector":
+        from lineage.agent.local_embeddings import LocalEmbedder
+        from lineage.search.vector import FalkorRetriever
+
+        retriever = FalkorRetriever(tools.g, tools.embedder if tools._embedder else LocalEmbedder())
+    rag_label = "FalkorDB vector index, top-5 chunks" if args.retriever == "vector" else "TF-IDF, top-5 passages"
     RESULTS.mkdir(parents=True, exist_ok=True)
     if args.mode == "retrieval":
         rows = retrieval_mode(questions, tools, retriever)
         summ = summarise(rows)
-        (RESULTS / "qa_retrieval.json").write_text(json.dumps({"status": "DRAFT gold questions", "summary": summ, "rows": rows}, indent=1))
+        (RESULTS / f"qa_retrieval{args.tag}.json").write_text(json.dumps({"status": "DRAFT gold questions", "summary": summ, "rows": rows}, indent=1))
         print(f"{'category':18s} {'n':>3s} | {'Lineage pass':>12s} {'cov':>5s} {'src':>5s} | {'RAG pass':>9s} {'cov':>5s} {'src':>5s}")
         for c in CATEGORIES + ["ALL"]:
             if c in summ:
@@ -260,10 +339,10 @@ def main() -> None:
                 print(f"{c:18s} {r['n']:3d} | {r['lineage_pass']:12.0%} {r['lineage_cov']:5.0%} {r['lineage_src']:5.0%} | {r['rag_pass']:9.0%} {r['rag_cov']:5.0%} {r['rag_src']:5.0%}")
         if args.chart:
             svg = svg_chart(summ, "Can the answerer even see the facts? (retrieval only, no LLM)", "lineage_pass", "rag_pass",
-                            "Lineage: output of the correct graph tool (oracle choice)", "RAG baseline: top-5 passages (TF-IDF)",
+                            "Lineage: output of the correct graph tool (oracle choice)", f"RAG baseline: {rag_label}",
                             "36 DRAFT gold questions. Share of questions whose required facts are all present. Not an LLM accuracy result.")
-            (RESULTS / "qa_retrieval.svg").write_text(svg)
-            print("chart:", "PNG written" if to_png(RESULTS / "qa_retrieval.svg", RESULTS / "qa_retrieval.png") else "SVG only (no headless Chrome found)")
+            (RESULTS / f"qa_retrieval{args.tag}.svg").write_text(svg)
+            print("chart:", "PNG written" if to_png(RESULTS / f"qa_retrieval{args.tag}.svg", RESULTS / f"qa_retrieval{args.tag}.png") else "SVG only (no headless Chrome found)")
     else:
         llm = build_llm(s, fallback=False)  # ONE provider (Gemini) for both systems: the comparison must be fair
         names = [p.name for p in llm.providers]
@@ -273,17 +352,22 @@ def main() -> None:
         retrievers = {}
         if "rag_tfidf" in systems:
             retrievers["rag_tfidf"] = retriever
+        if "rag_vector" in systems:
+            from lineage.agent.local_embeddings import LocalEmbedder
+            from lineage.search.vector import FalkorRetriever
+
+            retrievers["rag_vector"] = FalkorRetriever(tools.g, LocalEmbedder())
         if "rag_embedding" in systems:
             from lineage.agent.embeddings import GeminiEmbedder
             from eval.baseline_rag import EmbeddingRetriever
             retrievers["rag_embedding"] = EmbeddingRetriever(build_corpus(), GeminiEmbedder.from_settings(s))  # needs the whole corpus in the embedding cache
-        out = RESULTS / "qa_llm.jsonl"
+        out = RESULTS / f"qa_llm{args.tag}.jsonl"
         qs = [q for q in questions if (not args.only or q["id"] in args.only.split(","))][: args.limit or None]
-        rows = llm_mode(qs, llm, tools, retrievers, systems, out)
+        rows = llm_mode(qs, llm, tools, retrievers, systems, out, retry_errors=args.retry_errors)
         summ = summarise_llm(rows)
         meta = {"status": "DRAFT gold questions", "model": s.gemini_model, "provider": "gemini only (no fallback)", "systems": list(systems),
                 "llm_stats": {p.name: p.stats for p in llm.providers}, "questions_run": len(qs), "summary": summ}
-        (RESULTS / "qa_llm_summary.json").write_text(json.dumps(meta, indent=1))
+        (RESULTS / f"qa_llm_summary{args.tag}.json").write_text(json.dumps(meta, indent=1))
         print(json.dumps(meta, indent=1))
 
 

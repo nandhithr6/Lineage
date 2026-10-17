@@ -1,0 +1,10 @@
+{
+ "seed": 20261016,
+ "generated_at": "2026-10-16T12:46:41+00:00",
+ "sha256": "3279b29d315487281ecde1477220ece1a723b18a14936178fc31553fe217c674",
+ "questions": 34,
+ "revisions_before_first_run": [
+  "generator revised ONCE after reading the first draw (before any system saw it): time-travel folders must be distinct and not a bare top-level folder; decision-lineage and multi-hop questions must cover distinct owning teams. No system output was looked at."
+ ],
+ "rules": "* the seed is fixed in this file BEFORE the set is generated; the generated file is hashed and the hash recorded BEFORE any system sees it\n  * the set is run once; questions and answers are never edited afterwards. If one is found to be wrong, it is reported as wrong, not fixed;\n    a corrected set would need a new seed and a new freeze record, and the old results stay published.\n  * the \"drift\" category cannot be generated at random without making the truth depend on our own detector, so it is replaced here by\n    \"docs_to_gate\" (which feature gate does a docs section describe?), a linking question whose answer is stated in the page itself."
+}

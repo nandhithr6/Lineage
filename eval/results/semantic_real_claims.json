@@ -1,0 +1,155 @@
+{
+ "settings": {
+  "sem_floor": 0.74,
+  "sem_scale": 0.08,
+  "sem_max": 0.7
+ },
+ "confident_before": 73,
+ "confident_after": 73,
+ "newly_confident": [
+  {
+   "claim": "content/en/docs/concepts/extend-kubernetes/compute-storage-net/device-plugins.md#grpc-endpoint-getallocatableresources:1",
+   "gate": "KubeletPodResourcesGetAllocatable",
+   "confidence": 0.899,
+   "signals": {
+    "shared_links": 0.1,
+    "kep": 0.484,
+    "text_sim": 0.278,
+    "semantic": 0.7
+   },
+   "previously": [
+    "KubeletPodResourcesGetAllocatable",
+    0.665
+   ]
+  },
+  {
+   "claim": "content/en/docs/concepts/policy/pid-limiting.md#:1",
+   "gate": "SupportNodePidsLimit",
+   "confidence": 0.864,
+   "signals": {
+    "kep": 0.447,
+    "text_sim": 0.676,
+    "semantic": 0.241
+   },
+   "previously": [
+    "SupportNodePidsLimit",
+    0.79
+   ]
+  },
+  {
+   "claim": "content/en/docs/concepts/workloads/controllers/statefulset.md#minimum-ready-seconds:1",
+   "gate": "StatefulSetMinReadySeconds",
+   "confidence": 0.804,
+   "signals": {
+    "kep": 0.33,
+    "text_sim": 0.621,
+    "semantic": 0.229
+   },
+   "previously": [
+    "StatefulSetMinReadySeconds",
+    0.746
+   ]
+  },
+  {
+   "claim": "content/en/docs/tasks/administer-cluster/kms-provider.md#kms-v1:1",
+   "gate": "KMSv1",
+   "confidence": 0.987,
+   "signals": {
+    "name_mention": 0.9,
+    "kep": 0.32,
+    "text_sim": 0.369,
+    "semantic": 0.7
+   },
+   "previously": [
+    "KMSv1",
+    0.79
+   ]
+  }
+ ],
+ "lost_confidence": [
+  {
+   "claim": "content/en/docs/concepts/services-networking/endpoint-slices.md#endpointslice-mirroring:1",
+   "gate": "EndpointSlice",
+   "confidence": 0.847,
+   "audit_verdict": "wrong",
+   "now": [
+    "EndpointSlice",
+    0.79
+   ]
+  },
+  {
+   "claim": "content/en/docs/concepts/services-networking/service.md#endpoints:1",
+   "gate": "EndpointSlice",
+   "confidence": 0.897,
+   "audit_verdict": "wrong",
+   "now": [
+    "EndpointSlice",
+    0.79
+   ]
+  },
+  {
+   "claim": "content/en/docs/concepts/storage/volumes.md#migrating-to-csi-drivers-from-in-tree-plugins:1",
+   "gate": "CSIMigration",
+   "confidence": 0.964,
+   "audit_verdict": "correct",
+   "now": [
+    "CSIMigration",
+    0.79
+   ]
+  },
+  {
+   "claim": "content/en/docs/reference/networking/virtual-ips.md#traffic-to-terminating-endpoints:1",
+   "gate": "ProxyTerminatingEndpoints",
+   "confidence": 0.998,
+   "audit_verdict": "correct",
+   "now": [
+    "ProxyTerminatingEndpoints",
+    0.79
+   ]
+  }
+ ],
+ "top_gate_changed": [
+  {
+   "claim": "content/en/docs/concepts/storage/persistent-volumes.md#resizing-an-in-use-persistentvolumeclaim:1",
+   "before": "RecoverVolumeExpansionFailure",
+   "after": "ExpandInUsePersistentVolumes",
+   "before_conf": 0.58,
+   "after_conf": 0.73
+  },
+  {
+   "claim": "content/en/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale.md#scaling-on-custom-metrics:1",
+   "before": "HPAScaleToZero",
+   "after": "HPAContainerMetrics",
+   "before_conf": 0.729,
+   "after_conf": 0.783
+  },
+  {
+   "claim": "content/en/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale.md#scaling-on-multiple-metrics:1",
+   "before": "HPAScaleToZero",
+   "after": "HPAContainerMetrics",
+   "before_conf": 0.582,
+   "after_conf": 0.659
+  },
+  {
+   "claim": "content/en/docs/tasks/configure-pod-container/configure-service-account.md#serviceaccount-token-volume-projection:1",
+   "before": "TokenRequestProjection",
+   "after": "BoundServiceAccountTokenVolume",
+   "before_conf": 0.764,
+   "after_conf": 0.79
+  },
+  {
+   "claim": "content/en/docs/tasks/configure-pod-container/security-context.md#delegating-volume-permission-and-ownership-change-to-csi-driver:1",
+   "before": "ConfigurableFSGroupPolicy",
+   "after": "DelegateFSGroupToCSIDriver",
+   "before_conf": 0.79,
+   "after_conf": 0.79
+  },
+  {
+   "claim": "content/en/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions.md#validation-rules:1",
+   "before": "CRDValidationRatcheting",
+   "after": "CustomResourceValidationExpressions",
+   "before_conf": 0.5,
+   "after_conf": 0.697
+  }
+ ]
+}

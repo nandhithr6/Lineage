@@ -26,7 +26,7 @@ def half(page_path: str) -> str:
 def score(labels: list[dict], linker: Linker) -> dict:
     n = conf_n = conf_ok = top1 = in_cands = 0
     for lab in labels:
-        cands = linker.link(_SHORTCODE.sub(" ", lab["section_text"]), lab["doc_links"], lab["heading"], lab["page_doc_links"])
+        cands = linker.link(_SHORTCODE.sub(" ", lab["section_text"]), lab["doc_links"], lab["heading"], lab["page_doc_links"], since=lab.get("for_k8s_version"))
         n += 1
         truth = lab["gate_name"]
         if cands and cands[0].gate == truth:
@@ -50,7 +50,7 @@ def score_cases(linker: Linker) -> None:
     labels = {x["id"]: x for x in read_jsonl(LABELS)}
     for case in read_jsonl(Path("eval/drift_cases.jsonl")):
         lab = labels[case["claim_id"]]
-        cands = linker.link(lab["section_text"], lab["doc_links"], lab["heading"], lab["page_doc_links"])
+        cands = linker.link(lab["section_text"], lab["doc_links"], lab["heading"], lab["page_doc_links"], since=lab.get("for_k8s_version"))
         top = [(c.gate, c.confidence) for c in cands[:2]]
         exp, bad = case["expected_gate"], case["forbidden_confident_gate"]
         if bad:

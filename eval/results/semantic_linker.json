@@ -1,0 +1,74 @@
+[
+ {
+  "variant": "no name + KEP",
+  "baseline_A": {
+   "claims": 121,
+   "confident_coverage": 0.636,
+   "confident_precision": 0.974,
+   "top1_accuracy": 0.876,
+   "truth_in_top3": 0.95
+  },
+  "baseline_B": {
+   "claims": 144,
+   "confident_coverage": 0.438,
+   "confident_precision": 0.968,
+   "top1_accuracy": 0.84,
+   "truth_in_top3": 0.958
+  },
+  "best": {
+   "sem_floor": 0.74,
+   "sem_scale": 0.08,
+   "sem_max": 0.7
+  },
+  "tuned_A": {
+   "claims": 121,
+   "confident_coverage": 0.694,
+   "confident_precision": 0.976,
+   "top1_accuracy": 0.926,
+   "truth_in_top3": 0.95
+  },
+  "tuned_B": {
+   "claims": 144,
+   "confident_coverage": 0.493,
+   "confident_precision": 0.986,
+   "top1_accuracy": 0.84,
+   "truth_in_top3": 0.951
+  }
+ },
+ {
+  "variant": "full",
+  "baseline_A": {
+   "claims": 121,
+   "confident_coverage": 0.694,
+   "confident_precision": 0.976,
+   "top1_accuracy": 0.926,
+   "truth_in_top3": 0.967
+  },
+  "baseline_B": {
+   "claims": 144,
+   "confident_coverage": 0.562,
+   "confident_precision": 0.975,
+   "top1_accuracy": 0.875,
+   "truth_in_top3": 0.951
+  },
+  "best": {
+   "sem_floor": 0.74,
+   "sem_scale": 0.12,
+   "sem_max": 0.3
+  },
+  "tuned_A": {
+   "claims": 121,
+   "confident_coverage": 0.702,
+   "confident_precision": 0.976,
+   "top1_accuracy": 0.926,
+   "truth_in_top3": 0.967
+  },
+  "tuned_B": {
+   "claims": 144,
+   "confident_coverage": 0.562,
+   "confident_precision": 0.975,
+   "top1_accuracy": 0.868,
+   "truth_in_top3": 0.951
+  }
+ }
+]

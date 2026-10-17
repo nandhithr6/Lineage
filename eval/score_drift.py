@@ -92,7 +92,7 @@ def main() -> None:
             continue
         c = l["candidates"]
         top["confident" if c and c[0]["confidence"] >= CONFIDENT else "possible only" if c else "unresolved"] += 1
-    out += ["### 1c. Where the 186 drift-eligible claims land (before the hand-verified seed link)", "",
+    out += ["### 1c. Where the 186 drift-eligible claims land ", "",
             f"labels found 453 (265 look their gate up and cannot go stale; 188 hard-coded, 2 of them in the style guide and excluded) | "
             f"**confident {top['confident']}** | possible only {top['possible only']} | unresolved {top['unresolved']}", ""]
 
@@ -102,7 +102,7 @@ def main() -> None:
     tally = Counter()
     for c in cases:
         lab = label_by[c["claim_id"]]
-        cands = lk.link(lab["section_text"], lab["doc_links"], lab["heading"], lab["page_doc_links"])
+        cands = lk.link(lab["section_text"], lab["doc_links"], lab["heading"], lab["page_doc_links"], since=lab.get("for_k8s_version"))
         topc = cands[0] if cands else None
         exp, bad = c["expected_gate"], c["forbidden_confident_gate"]
         if bad:
@@ -114,7 +114,7 @@ def main() -> None:
             v = "no gate known: " + ("confident link (inspect)" if topc and topc.confidence >= CONFIDENT else "no confident link")
         tally[v.split(" (")[0]] += 1
         out.append(f"| {c['id']} | {exp or '-'} | {topc.gate + ' ' + str(topc.confidence) if topc else '-'} | {v} |")
-    out += ["", "Summary: " + ", ".join(f"{k}: {v}" for k, v in tally.items()) + ". The seed case is below the bar automatically and is covered by the manually verified link (disclosed).", ""]
+    out += ["", "Summary: " + ", ".join(f"{k}: {v}" for k, v in tally.items()) + ". The seed case is now linked automatically (since-version rule removes its sibling gate).", ""]
 
     # ---- Stage 2: detection given the right gate --------------------------------------------------------
     out += ["## Stage 2: given the right gate, is the verdict right?", "", "Uses the verified gate of each hand-picked case, so linking errors cannot leak in. "
