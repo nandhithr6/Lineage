@@ -46,7 +46,7 @@ def test_owners_of_tool_time_travel(toolbox):
 
 def test_doc_claims_and_decision_lineage_tools(toolbox):
     c = toolbox.doc_claims("resource-quotas")
-    assert c["status"] == "ok" and any(e["props"]["linked_gate"] == "LocalStorageCapacityIsolation" and e["props"]["link_method"] == "manual" for e in c["evidence"])
+    assert c["status"] == "ok" and any(e["props"]["linked_gate"] == "LocalStorageCapacityIsolation" and e["props"]["link_method"] == "linker" for e in c["evidence"])
     d = toolbox.decision_lineage("LocalStorageCapacityIsolation")
     assert d["status"] == "ok" and any(e["type"] == "OWNED_BY" and e["to"] == "SIG:sig-storage" for e in d["evidence"])
 
@@ -56,7 +56,9 @@ def test_agent_answers_with_citations_from_tool_evidence(toolbox):
                    LLMResponse("The gate reached stable at 1.25 [e3] and was then removed [e1].")])
     r = run_agent(llm, toolbox, "What happened to LocalStorageCapacityIsolation?")
     assert r.status == "ok" and {c["id"] for c in r.citations} == {"e1", "e3"} and r.iterations == 2
-    assert r.tool_trace == [{"tool": "gate_timeline", "params": {"gate": "LocalStorageCapacityIsolation"}, "status": "ok", "evidence": 4}]
+    assert len(r.tool_trace) == 1 and {k: r.tool_trace[0][k] for k in ("tool", "params", "status", "evidence", "outcome")} == {
+        "tool": "gate_timeline", "params": {"gate": "LocalStorageCapacityIsolation"}, "status": "ok", "evidence": 4, "outcome": "answered_with_path"}
+    assert isinstance(r.tool_trace[0]["duration_ms"], int)
     tool_msg = llm.seen[1][-1]  # the second model call saw the tool result, with unique evidence ids and sources
     assert tool_msg["role"] == "tool" and '"id": "e3"' in tool_msg["content"] and "source_url" in tool_msg["content"]
     assert json.loads(tool_msg["content"])["status"] == "ok"
@@ -65,7 +67,7 @@ def test_agent_answers_with_citations_from_tool_evidence(toolbox):
 def test_agent_refuses_when_no_evidence_even_if_the_model_tries_to_answer(toolbox):
     llm = FakeLLM([tc("gate_timeline", gate="NoSuchGate"), LLMResponse("It is stable since 1.99 [e1].")])
     r = run_agent(llm, toolbox, "Tell me about NoSuchGate")
-    assert r.status == "insufficient_evidence" and r.answer.startswith("Insufficient evidence") and r.citations == [] and "NoSuchGate" in r.answer
+    assert r.status == "insufficient_evidence" and r.answer.startswith("Unknown entity") and r.citations == [] and "NoSuchGate" in r.answer
 
 
 def test_agent_refuses_without_calling_any_tool(toolbox):
@@ -149,7 +151,7 @@ def test_doc_claims_is_case_insensitive_and_shows_candidates_honestly(toolbox):
     claim = next(e for e in toolbox.doc_claims("Pod OS")["evidence"] if e["props"]["section"] == "Pod OS")
     assert claim["props"]["link_note"].startswith("NOT confident") and claim["props"]["candidate_gates"][0]["confidence"] < 0.8
     seed = next(e for e in toolbox.doc_claims("resource-quotas")["evidence"] if e["props"]["section"] == "Quota for local ephemeral storage")
-    assert seed["props"]["link_method"] == "manual" and seed["props"]["link_note"] == "confident"
+    assert seed["props"]["link_method"] == "linker" and seed["props"]["link_note"] == "confident"
 
 
 def test_owners_of_says_why_when_history_does_not_exist(toolbox):
@@ -171,3 +173,33 @@ def test_agent_accepts_fullwidth_citations(toolbox):
     llm = FakeLLM([tc("gate_timeline", gate="LocalStorageCapacityIsolation"), LLMResponse("Stable at 1.25【e3】.")])
     r = run_agent(llm, toolbox, "q")
     assert r.status == "ok" and "[e3]" in r.answer and [c["id"] for c in r.citations] == ["e3"]
+
+
+def test_future_or_unsampled_releases_are_refused_not_answered_with_todays_owners(toolbox):
+    """Regression for held-out h_un2: 'approvers in release 1.45' used to return the LATEST owners and the model listed them."""
+    for rel in ("1.45", "2.0", "1.29", "1.10"):
+        b = toolbox.owners_of("pkg/controller/job", as_of=rel)
+        assert b["status"] == "insufficient_evidence" and b["evidence"] == [] and "Do not substitute" in b["params"]["note"], rel
+    assert "future cannot be known" in toolbox.owners_of("pkg/controller/job", as_of="1.45")["params"]["note"]
+    assert toolbox.owners_of("pkg/controller/job", as_of="1.38")["status"] == "ok"  # 1.38 = latest (HEAD), sampled
+    assert toolbox.owners_of("pkg/controller/job", as_of="1.30")["status"] == "ok"
+    assert toolbox.what_changed("pkg/controller/job", "1.30", "1.45")["status"] == "insufficient_evidence"
+    assert toolbox.what_changed("LocalStorageCapacityIsolation", "1.30", "1.45")["status"] == "insufficient_evidence"
+    assert toolbox.what_changed("LocalStorageCapacityIsolation", "1.20", "1.30")["status"] == "ok"
+
+
+def test_agent_refuses_a_future_release_even_if_the_model_lists_current_owners(toolbox):
+    llm = FakeLLM([tc("owners_of", path="pkg/controller/job", as_of="1.45"), LLMResponse("The approvers will be alculquicondor [e1].")])
+    r = run_agent(llm, toolbox, "Who will be the approvers of pkg/controller/job in release 1.45?")
+    assert r.status == "insufficient_evidence" and r.citations == [] and "alculquicondor" not in r.answer
+
+
+def test_trace_records_validated_arguments_duration_rows_and_outcome(toolbox):
+    llm = FakeLLM([tc("gate_timeline", gate="localstoragecapacityisolation"), LLMResponse("Stable at 1.25 [e3].")])
+    r = run_agent(llm, toolbox, "q")
+    (step,) = r.tool_trace
+    assert step["params"] == {"gate": "LocalStorageCapacityIsolation"} and step["given"] == {"gate": "localstoragecapacityisolation"}  # canonical name used, original kept
+    assert step["evidence"] == 4 and step["outcome"] == "answered_with_path" and isinstance(step["duration_ms"], int) and step["duration_ms"] >= 0
+    llm2 = FakeLLM([tc("gate_timeline", gate="NoSuchGate"), LLMResponse("x")])
+    (bad,) = run_agent(llm2, toolbox, "q").tool_trace
+    assert bad["params"] == {"gate": "NoSuchGate"} and bad["given"] is None and bad["evidence"] == 0 and bad["outcome"] == "unknown_entity" and bad["unresolved"][0]["argument"] == "gate"

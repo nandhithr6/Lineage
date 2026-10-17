@@ -99,3 +99,64 @@ def test_checks_accept_a_handle_or_a_display_name():
     assert passes(checks, "chairs: gnufied, xing-yang", False)
     assert not passes(checks, "The chairs are Xing Yang.", False)
     assert fact_coverage(checks, "Xing Yang only") == 0.5
+
+
+def test_a_frozen_heldout_set_cannot_be_edited_and_scored(tmp_path, monkeypatch):
+    import hashlib
+    import json as _json
+
+    import eval.run_qa as R
+    gold = tmp_path / "gold_heldout.jsonl"
+    gold.write_text('{"id": "h1"}\n')
+    freeze = tmp_path / "freeze.json"
+    freeze.write_text(_json.dumps({"sha256": hashlib.sha256(gold.read_bytes()).hexdigest()}))
+    real_path = R.Path
+    monkeypatch.setattr(R, "Path", lambda p: freeze if str(p).endswith("heldout_freeze.json") else real_path(p))
+    R.verify_frozen(gold)  # unchanged: fine
+    gold.write_text('{"id": "h1", "edited": true}\n')
+    import pytest
+    with pytest.raises(SystemExit) as e:
+        R.verify_frozen(gold)
+    assert "edited" in str(e.value)
+    R.verify_frozen(tmp_path / "gold_questions.jsonl")  # other files are not frozen
+
+
+def test_retry_errors_reruns_only_provider_failures_and_summary_separates_them(graph, tmp_path):  # noqa: F811
+    from eval.run_qa import llm_mode, summarise_llm
+    from lineage.agent.llm import ProviderError
+
+    load_all(graph)
+    q = {"id": "own4", "category": "ownership", "question": "Who chairs sig-storage?", "checks": [{"all": ["gnufied"]}], "sources": ["u"], "oracle_tool": None}
+    out = tmp_path / "rows.jsonl"
+
+    class Down:
+        def chat(self, *a, **k):
+            raise ProviderError("503 high demand")
+
+    rows = llm_mode([q], Down(), ToolBox(graph), Retriever([Passage("a", "gnufied chairs sig-storage", "u")]), out=out)
+    s = summarise_llm(rows)
+    assert s["lineage"]["errors"] == 1 and s["lineage"]["accuracy"] == 0.0 and s["lineage"]["n_answered"] == 0 and s["lineage"]["accuracy_among_answered"] is None
+    ok = FakeLLM([LLMResponse(tool_calls=[ToolCall("c", "sig_leaders", {"sig": "sig-storage"})]), LLMResponse("gnufied chairs it [e2]."), LLMResponse("gnufied [p1]")])
+    rows = llm_mode([q], ok, ToolBox(graph), Retriever([Passage("a", "gnufied chairs sig-storage", "u")]), out=out, retry_errors=True)
+    assert all(r["status"] != "error" for r in rows) and len(out.read_text().splitlines()) == 2
+    assert summarise_llm(rows)["lineage"]["errors"] == 0
+
+
+def test_expertise_source_accepts_any_pr_that_shows_the_claim():
+    """Held-out run: the answer named real reviewers and cited their latest PR, but the gold file lists three other sample PRs, so every expertise 'source' failed."""
+    from eval.run_qa import evaluate_answer, expertise_source_ok
+
+    q = {"category": "expertise", "question": "Who reviews pkg/x?", "checks": [{"any": [["alice", "Alice A"], "bob"], "min": 1}],
+         "sources": ["https://github.com/kubernetes/kubernetes/pull/1"], "oracle_tool": {"name": "experts_for", "args": {"path": "pkg/x"}}}
+    prs = {"https://github.com/kubernetes/kubernetes/pull/9": {"dirs": ["pkg/x/sub"], "reviews": [{"login": "Alice"}]},
+           "https://github.com/kubernetes/kubernetes/pull/8": {"dirs": ["pkg/other"], "reviews": [{"login": "alice"}]},
+           "https://github.com/kubernetes/kubernetes/pull/7": {"dirs": ["pkg/x"], "reviews": [{"login": "carol"}]}}
+    answer = "alice reviews it [e1]"
+    assert expertise_source_ok(q, answer, {"https://github.com/kubernetes/kubernetes/pull/9"}, prs)
+    assert not expertise_source_ok(q, answer, {"https://github.com/kubernetes/kubernetes/pull/8"}, prs)  # reviewed by alice, but a different folder
+    assert not expertise_source_ok(q, answer, {"https://github.com/kubernetes/kubernetes/pull/7"}, prs)  # right folder, reviewer is not the person named
+    assert not expertise_source_ok(q, "nobody useful", {"https://github.com/kubernetes/kubernetes/pull/9"}, prs)
+    r = evaluate_answer(q, answer, {"https://github.com/kubernetes/kubernetes/pull/9"}, prs)
+    assert r["correct"] and r["source_ok"] and not r["source_ok_strict"]
+    other = dict(q, category="ownership", oracle_tool={"name": "owners_of", "args": {"path": "pkg/x"}})
+    assert not evaluate_answer(other, answer, {"https://github.com/kubernetes/kubernetes/pull/9"}, prs)["source_ok"]  # the fair rule is for expertise only

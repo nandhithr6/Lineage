@@ -77,6 +77,10 @@ def test_official_vs_actual_and_orphans(graph):  # noqa: F811
     assert "pkg/volume" not in orphans  # an approver was active
     assert "pkg/controller/job" in orphans and "newperson" in orphans["pkg/controller/job"]["unlisted_active"]  # active, but not a listed owner
     assert all(o["path"] for o in orphans.values())  # the root is never reported
+    assert all(o["active_people"] > 0 for o in orphans.values())  # orphaned = someone worked there; silence alone is "dormant", not a risk
+    from lineage.graph.queries import dormant_components
+    dormant = {d["path"] for d in dormant_components(graph, 12, TODAY)}
+    assert dormant.isdisjoint(orphans)
     assert official_vs_actual(graph, "kubernetes", "pkg/volume", 36, TODAY)["inactive_approvers"] != v["inactive_approvers"]  # a longer window changes the answer
 
 
@@ -120,3 +124,49 @@ def test_reviewer_suggestions_use_activity_and_drop_inactive_owners(graph):  # n
     assert "code" not in {x["category"] for x in got["xing-yang"]["reasons"]} and "lead" in {x["category"] for x in got["xing-yang"]["reasons"]}
     assert "active" not in {x["category"] for x in got["xing-yang"]["reasons"]}  # a review two years ago is not activity
     assert "active" in {x["category"] for x in got["msau42"]["reasons"]} and "bob" in got
+
+
+def test_pagerank_ranks_the_reviewer_everyone_relies_on_first(graph):  # noqa: F811
+    """algo.pageRank('Person','REVIEWED_BY'): rank flows author -> reviewer, so being relied on by people who are themselves relied on counts most.
+    Here r is relied on by 4 people and itself relies on s, so s (who collects r's rank as well as a's) edges ahead of r; both far exceed everyone else."""
+    from lineage.graph.queries import review_network_top
+
+    graph.query("UNWIND ['a','b','c','d','r','s','lonely'] AS h MERGE (:Person {handle: h})")
+    graph.query("UNWIND [['a','r',3],['b','r',1],['c','r',2],['d','r',1],['r','s',4],['a','s',1]] AS e "
+                "MATCH (x:Person {handle:e[0]}), (y:Person {handle:e[1]}) MERGE (x)-[:REVIEWED_BY {count: e[2]}]->(y)")
+    graph.query("MATCH (p:Person {handle:'r'}), (c:CodePath) WITH p, c LIMIT 1 MERGE (p)-[:APPROVER_OF {valid_from: 130}]->(c)") if graph.ro_query("MATCH (c:CodePath) RETURN count(c)").result_set[0][0] else None
+    top = review_network_top(graph, 10)
+    assert [t["handle"] for t in top][:2] == ["s", "r"] and top[0]["score"] > top[1]["score"] > 3 * top[2]["score"]
+    r = next(t for t in top if t["handle"] == "r")
+    assert r["authors_served"] == 4 and r["reviews"] == 7  # 3+1+2+1, counted once (not multiplied by the approver join)
+    assert {t["handle"] for t in top[2:]} == {"a", "b", "c", "d", "lonely"}
+    assert abs(sum(t["score"] for t in review_network_top(graph, 100)) - 1.0) < 0.05
+    assert next(t for t in top if t["handle"] == "lonely")["authors_served"] == 0
+
+
+def test_issues_and_pr_kep_links_are_loaded_with_provenance_and_shown_in_the_trace(graph):  # noqa: F811
+    from lineage.detect.drift import run_detector, write_findings
+    from lineage.graph.loader import load_issues, load_pr_keps
+    from lineage.graph.trace import build_trace
+
+    load_all(graph, include_prs=False)
+    write_findings(graph, run_detector(graph)[0])
+    known = {r[0] for r in graph.ro_query("MATCH (c:CodePath {repo:'kubernetes'}) RETURN c.path").result_set}
+    prs = [dict(p) for p in PRS[:2]]
+    prs[0]["closes"] = [{"repo": "kubernetes/kubernetes", "number": 77, "title": "Quota is wrong", "url": "https://github.com/kubernetes/kubernetes/issues/77", "state": "CLOSED",
+                         "created_at": "2025-01-01T00:00:00Z", "closed_at": "2026-10-01T00:00:00Z"}]
+    load_prs(graph, prs, known, "2026-10-15T00:00:00+00:00")
+    assert load_issues(graph, prs, "2026-10-15T00:00:00+00:00") == (1, 1)
+    assert load_issues(graph, prs, "2026-10-15T00:00:00+00:00") == (1, 1)  # idempotent
+    kep = "sig-storage/361-local-ephemeral-storage-isolation"
+    links = [{"pr": 1, "kep": kep, "method": "kep_url", "confidence": 0.95, "evidence": "keps/sig-storage/361", "source_url": prs[0]["url"]},
+             {"pr": 2, "kep": kep, "method": "feature_gate_name", "confidence": 0.5, "evidence": "names feature gate X", "source_url": prs[1]["url"]}]
+    assert load_pr_keps(graph, links, "2026-10-15T00:00:00+00:00") == 2
+    q = lambda c: graph.ro_query(c).result_set  # noqa: E731
+    assert q("MATCH (:PR)-[e:FIXES]->(i:Issue {id:'kubernetes/kubernetes#77'}) RETURN e.extracted_by, e.confidence, e.source_url, i.state")[0] == ["structured", 1.0, prs[0]["url"], "CLOSED"]
+    row = q("MATCH (:PR {number:1})-[e:IMPLEMENTS]->(:KEP) RETURN e.method, e.confidence, e.extracted_by, e.source_url, e.recorded_at")[0]
+    assert row[:3] == ["kep_url", 0.95, "inferred"] and row[3].endswith("/pull/1") and row[4]
+    load_pr_keps(graph, links[:1], "2026-10-16T00:00:00+00:00")  # derived hypotheses are replaced, not accumulated
+    assert q("MATCH ()-[e:IMPLEMENTS]->() RETURN count(e)")[0][0] == 1
+    k = build_trace(graph, "resource-quotas")["sections"]["kep"]
+    assert k["prs_strong"] == 1 and k["prs_weak"] == 0 and [p["number"] for p in k["prs"]] == [1] and k["prs"][0]["issues"][0]["id"] == "kubernetes/kubernetes#77"

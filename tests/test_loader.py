@@ -22,6 +22,7 @@ def graph(monkeypatch, tmp_path):
     # The real PR snapshot (thousands of PRs) must not leak into unit tests: tests that need PRs load a small synthetic set themselves.
     from lineage.graph import loader
     monkeypatch.setattr(loader, "PRS_SNAPSHOT", tmp_path / "no-prs-in-unit-tests.jsonl")
+    monkeypatch.setattr(loader, "CHUNKS_SNAPSHOT", tmp_path / "no-chunks-in-unit-tests.jsonl")  # vector tests load their own small set
     try:
         db = connect()
         db.connection.ping()
@@ -30,6 +31,12 @@ def graph(monkeypatch, tmp_path):
     if TEST_GRAPH in db.list_graphs():
         db.select_graph(TEST_GRAPH).delete()
     g = db.select_graph(TEST_GRAPH)
+    import lineage.api.main as api_main
+    api_main._CACHE.clear()
+    from lineage.agent import validate as _validate, resolve as _resolve
+    _validate._VALIDATORS.clear()
+    _resolve.clear_cache()
+    api_main._CACHE.clear()  # the API caches slow ownership scans per graph name; a fresh test graph must not see the last test's
     yield g
     if TEST_GRAPH in db.list_graphs():
         g.delete()
@@ -61,12 +68,12 @@ def test_seed_finding_end_to_end(graph):
     assert rows == [[1, "LocalStorageCapacityIsolation", "1.26"]]
     edge = graph.ro_query("MATCH (:Claim {id:$c})-[a:ABOUT]->(:FeatureGate {name:'LocalStorageCapacityIsolation'}) "
                           "RETURN a.method, a.link_confidence, a.linker_confidence, a.verified_by", {"c": seed[0].claim_id}).result_set
-    assert edge[0][0] == "manual" and edge[0][1] == 1.0
-    assert edge[0][2] is not None and edge[0][2] >= 0.8  # the AUTOMATIC linker alone now picks the seed gate with confidence (sibling eliminated)
+    assert edge[0][0] == "linker" and edge[0][1] >= 0.8 and edge[0][3] is None  # no manual edge: the automatic linker chose the seed gate on its own
     elim = json.loads(graph.ro_query("MATCH (:Claim {id:$c})-[a:ABOUT]->(:FeatureGate {name:'LocalStorageCapacityIsolation'}) RETURN a.eliminated", {"c": seed[0].claim_id}).result_set[0][0])
     assert any(e["gate"] == "LocalStorageCapacityIsolationFSQuotaMonitoring" and e["first_version"] == "1.15" for e in elim)
-    # Policy consequence (README): without the hand verification the link is automatic but NOT anchored, so the seed would be "possible drift", not a finding.
-    graph.query("MATCH ()-[a:ABOUT {method:'manual'}]->() SET a.method = 'linker'")
+    # Policy: the link is anchored only because the since-version rule removed a rival that would have been confident. Without that record the
+    # link is automatic but NOT anchored, so the seed would be "possible drift", not a finding.
+    graph.query("MATCH (:Claim {id:$c})-[a:ABOUT]->(:FeatureGate {name:'LocalStorageCapacityIsolation'}) SET a.eliminated = '[]'", {"c": seed[0].claim_id})
     again = next(r for r in run_detector(graph)[0] if r.gate == "LocalStorageCapacityIsolation")
     assert again.kind == "possible_drift" and again.severity == "review"
 
@@ -99,14 +106,14 @@ def test_hero_trace_resource_quotas(graph):
     b = build_trace(graph, "resource-quotas")
     assert b["status"] == "ok" and b["tool"] == "explain_finding"
     s = b["sections"]
-    assert s["finding"]["kind"] == "stale_stage" and s["link"]["method"] == "manual"
+    assert s["finding"]["kind"] == "stale_stage" and s["link"]["method"] == "linker" and s["link"]["eliminated"]
     assert [h["stage"] for h in s["gate"]["history"]] == ["alpha", "beta", "stable"]
     assert s["kep"]["id"] == "sig-storage/361-local-ephemeral-storage-isolation" and s["kep"]["sig"] == "sig-storage"
     groups = {r["group"] for r in s["reviewers"]}
     assert groups == {"docs approver", "domain expert"} and not any(r["handle"] == "stewart-yu" for r in s["reviewers"])  # emeritus
     assert all(e["source_url"] or e["type"] == "Finding" for e in b["evidence"] if e["type"] != "Reviewer")
     text = render(b)
-    assert "LocalStorageCapacityIsolation" in text and "verified by hand" in text and "source [e1]" in text
+    assert "LocalStorageCapacityIsolation" in text and "ruled out:" in text and "no manual edge" in text and "source [e1]" in text
 
 
 def test_hero_says_insufficient_evidence_when_nothing_matches(graph):
@@ -127,7 +134,7 @@ def test_stale_linker_edges_do_not_survive_a_reload(graph):
     assert graph.ro_query("MATCH ()-[a:ABOUT {method:'linker'}]->() RETURN count(a)").result_set[0][0] == n + 1
     load_all(graph)
     assert graph.ro_query("MATCH ()-[a:ABOUT {method:'linker'}]->() RETURN count(a)").result_set[0][0] == n
-    assert graph.ro_query("MATCH ()-[a:ABOUT {method:'manual'}]->() RETURN count(a)").result_set[0][0] == 1
+    assert graph.ro_query("MATCH ()-[a:ABOUT {method:'manual'}]->() RETURN count(a)").result_set[0][0] == 0  # none: verified_links.jsonl is empty
 
 
 def test_demo_queries_are_small_and_non_empty(graph):
@@ -139,3 +146,17 @@ def test_demo_queries_are_small_and_non_empty(graph):
     write_findings(graph, run_detector(graph)[0])
     assert check(graph, quiet=True) == 0
     assert "MATCH" in export() and "hairball" in export()
+
+
+def test_finding_plumbing_edges_carry_detector_provenance(graph):
+    from lineage.detect.drift import DETECTOR_VERSION, run_detector, write_findings
+
+    load_all(graph)
+    write_findings(graph, run_detector(graph)[0])
+    for rel in ("FOR_CLAIM", "FOR_GATE", "AS_OF"):
+        rows = graph.ro_query(f"MATCH (:Finding)-[e:{rel}]->() RETURN count(e), count(e.recorded_at), count(e.detector_version), "
+                              f"count(CASE WHEN e.extracted_by = 'detector' THEN 1 END), count(e.source_url)").result_set[0]
+        assert rows[0] > 0 and rows[0] == rows[1] == rows[2] == rows[3] and rows[4] == 0
+    assert graph.ro_query("MATCH (:Finding)-[e:FOR_GATE]->() RETURN e.detector_version LIMIT 1").result_set[0][0] == DETECTOR_VERSION
+    seed = graph.ro_query("MATCH (f:Finding)-[:FOR_GATE]->(:FeatureGate {name:'LocalStorageCapacityIsolation'}) RETURN f.anchored_by").result_set
+    assert seed == [["elimination"]]

@@ -42,7 +42,7 @@ def test_findings_list_and_filters(client):
 def test_finding_detail_by_short_id_and_by_key(client):
     f = seed(client)
     d = client.get(f"/findings/{finding_id(f['key'])}").json()
-    assert d["status"] == "ok" and d["sections"]["link"]["method"] == "manual" and d["path"][0].startswith("DocPage:")
+    assert d["status"] == "ok" and d["sections"]["link"]["method"] == "linker" and d["path"][0].startswith("DocPage:")
     from urllib.parse import quote
     assert client.get(f"/findings/{quote(f['key'], safe='')}").json()["key"] == f["key"]  # a percent-encoded key works too (a raw '#' would start the URL fragment)
     assert client.get("/findings/doesnotexist").status_code == 404
@@ -66,7 +66,7 @@ def test_entity_neighbors_and_unknown(client):
 
 def test_about_data(client):
     a = client.get("/about-data").json()
-    assert a["manual_links"] == 1 and a["counts"]["FeatureGate"] > 400 and a["detector"]["claims checked"] > 100
+    assert a["manual_links"] == 0 and a["counts"]["FeatureGate"] > 400 and a["detector"]["claims checked"] > 100
     assert any(s["repo"] == "kubernetes/website" and len(s["commit"]) == 40 for s in a["sources"]) and a["limitations"]
 
 
@@ -135,3 +135,118 @@ def test_server_logging_is_configured_and_never_logs_urls(client):
     import logging
     assert logging.getLogger("lineage").level == logging.INFO and logging.getLogger("httpx").level >= logging.WARNING
     assert client.post("/ask", json={"question": "anything at all"}).status_code == 200
+
+
+def test_ask_limiter_per_visitor_per_day_and_window():
+    from fastapi import HTTPException
+
+    from lineage.api.main import AskLimiter
+
+    t = [0.0]
+    lim = AskLimiter(per_ip_hour=2, per_day=3, clock=lambda: t[0])
+    lim.check("a"); lim.check("a")
+    with pytest.raises(HTTPException) as e:
+        lim.check("a")
+    assert e.value.status_code == 429 and "per hour" in e.value.detail and "Retry-After" in e.value.headers
+    lim.check("b")  # a different visitor is not affected
+    with pytest.raises(HTTPException) as e:
+        lim.check("c")  # the global daily budget (3) is used up
+    assert "daily budget" in e.value.detail
+    t[0] = 86401
+    lim.check("a")  # a day later everything is available again
+
+
+def test_ask_is_rate_limited_over_http(client, monkeypatch):
+    from lineage.agent.llm import LLMResponse
+    from lineage.api import main as M
+
+    monkeypatch.setattr(M, "ASK_LIMITER", M.AskLimiter(per_ip_hour=1, per_day=0))
+    app.dependency_overrides[get_llm] = lambda: FakeLLM([LLMResponse("Insufficient evidence."), LLMResponse("Insufficient evidence.")])
+    assert client.post("/ask", json={"question": "first question"}, headers={"x-forwarded-for": "9.9.9.9, 10.0.0.1"}).status_code == 200
+    r = client.post("/ask", json={"question": "second question"}, headers={"x-forwarded-for": "9.9.9.9"})
+    assert r.status_code == 429 and "per hour" in r.json()["detail"]
+    assert client.post("/ask", json={"question": "other visitor"}, headers={"x-forwarded-for": "8.8.8.8"}).status_code == 200
+
+
+def test_single_container_server_serves_api_and_ui(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from lineage.api.server import build
+
+    (tmp_path / "index.html").write_text("<html>UI</html>")
+    c = TestClient(build(tmp_path))
+    assert c.get("/healthz").json() == {"status": "ok"} and "UI" in c.get("/").text
+    assert c.get("/api/health").status_code in (200, 500)  # the API is mounted under /api (needs a database to say more)
+    assert "UI" not in TestClient(build(tmp_path / "nope")).get("/api/openapi.json").text  # without a built UI only the API exists
+
+
+def test_insights_endpoint_has_the_three_sections(client):
+    r = client.get("/insights?months=12")
+    assert r.status_code == 200
+    body = r.json()
+    assert set(body) == {"months", "ownership_gaps", "orphaned", "dormant", "key_reviewers", "notes"}
+    assert all(not row["path"].startswith("test/") for row in body["ownership_gaps"])
+
+
+def test_warm_caches_fills_the_slow_ownership_caches(client, graph, monkeypatch):  # noqa: F811
+    import lineage.api.main as m
+
+    monkeypatch.setattr(m, "_graph", lambda: graph)
+    m._CACHE.clear()
+    m.warm_caches()
+    assert {k[0] for k in m._CACHE} >= {"views"}
+    # a request after the warm-up must hit the cache, not recompute
+    monkeypatch.setattr(m, "scan_ownership", lambda *a, **k: (_ for _ in ()).throw(AssertionError("recomputed")))
+    assert client.get("/orphans?months=12").status_code == 200
+
+
+def _ask_with(client, tool, args, final="It is what it is [e1]."):
+    app.dependency_overrides[get_llm] = lambda: FakeLLM([LLMResponse(tool_calls=[ToolCall("c", tool, args)]), LLMResponse(final), LLMResponse(final)])
+    return client.post("/ask", json={"question": f"question about {tool}?", "session_id": f"s-{tool}-{abs(hash(str(args)))}"}).json()
+
+
+def test_outcome_answered_with_path_and_the_trace_fields(client):
+    r = _ask_with(client, "gate_timeline", {"gate": "LocalStorageCapacityIsolation"}, "It reached stable at 1.25 [e3].")
+    assert r["outcome"] == "answered_with_path" and r["status"] == "ok"
+    t = r["tool_trace"][0]
+    assert t["tool"] == "gate_timeline" and t["params"] == {"gate": "LocalStorageCapacityIsolation"} and t["evidence"] == 4 and t["outcome"] == "answered_with_path"
+    assert isinstance(t["duration_ms"], int) and t["duration_ms"] >= 0 and t["unresolved"] == []
+
+
+def test_outcome_unknown_entity_runs_no_traversal_and_offers_names_as_text(client):
+    r = _ask_with(client, "gate_timeline", {"gate": "LocalStorageCapacityIsolatio"}, "It is stable [e1].")
+    assert r["outcome"] == "unknown_entity" and r["status"] == "insufficient_evidence" and r["evidence"] == [] and r["citations"] == []
+    assert r["answer"].startswith("Unknown entity") and "did you mean: LocalStorageCapacityIsolation" in r["answer"] and "stable" not in r["answer"].lower().replace("insufficient", "")
+    t = r["tool_trace"][0]
+    assert t["outcome"] == "unknown_entity" and t["evidence"] == 0 and t["unresolved"][0]["did_you_mean"][0] == "LocalStorageCapacityIsolation"
+
+
+def test_outcome_not_in_graph_means_the_name_exists_but_nothing_connects(client):
+    r = _ask_with(client, "owners_of", {"path": "pkg/volume", "as_of": "1.20"}, "They were X [e1].")
+    assert r["outcome"] == "not_in_graph" and r["status"] == "insufficient_evidence" and r["evidence"] == []
+    assert r["tool_trace"][0]["outcome"] == "not_in_graph" and r["tool_trace"][0]["unresolved"] == []  # both names resolved; there is simply no record
+    assert "unknown" not in r["answer"].lower().split("what i searched")[0]
+
+
+def test_saved_demo_answers_keep_their_outcome():
+    from lineage.api.models import AskResponse
+
+    legacy = {"answer": "x [e1]", "status": "ok", "citations": [], "evidence": [], "path": [], "tool_trace": []}  # saved before outcomes existed
+    assert AskResponse(**legacy).outcome == "answered_with_path"
+
+
+def test_unknown_names_in_the_question_are_answered_without_a_model_or_a_key(client, monkeypatch):
+    import lineage.api.main as m
+    from lineage.agent.llm import LLMNotConfigured
+
+    def no_key():
+        raise LLMNotConfigured("no key")
+
+    monkeypatch.setattr(m, "build_llm", no_key)
+    app.dependency_overrides.pop(get_llm, None)
+    monkeypatch.setattr(m, "ASK_LIMITER", m.AskLimiter(1, 1))
+    for q, needle in (("What is the stage of the LocalStorageCapacityIsolatio gate?", "did you mean: LocalStorageCapacityIsolation"), ("Who will approve pkg/controller/job in release 1.45?", "release 1.45")):
+        for _ in range(3):  # beyond the 1-question limiter budget: these never touch it
+            r = client.post("/ask", json={"question": q})
+            assert r.status_code == 200 and r.json()["outcome"] == "unknown_entity" and needle in r.json()["answer"] and r.json()["tool_trace"][0]["tool"] == "resolve_question"
+    assert client.post("/ask", json={"question": "something a model must answer"}).status_code == 503  # an ordinary question still needs the model

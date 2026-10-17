@@ -88,3 +88,42 @@ def test_anchoring():
     assert not is_anchored("linker", '{"name_mention": 0.5, "kep": 0.8, "text_sim": 0.8}')  # bare mention is not an anchor
     assert not is_anchored("linker", '{"kep": 0.8, "text_sim": 0.9}')
     assert is_anchored("manual", None) and not is_anchored("linker", None)
+
+
+def test_style_guide_labels_are_never_drift_eligible():
+    from lineage.graph.loader import is_drift_eligible
+
+    assert not is_drift_eligible("hardcoded", "content/en/docs/contribute/style/hugo-shortcodes/index.md")
+    assert is_drift_eligible("hardcoded", "content/en/docs/concepts/policy/resource-quotas.md")
+    assert not is_drift_eligible("gate_lookup", "content/en/docs/concepts/policy/resource-quotas.md")
+
+
+def test_anchor_by_elimination_needs_a_clear_margin():
+    from lineage.detect.drift import anchor_reason
+
+    elim = '[{"gate": "X", "would_be_confidence": 0.9}]'
+    assert anchor_reason("linker", "{}", elim, 0.84, 0.44) == "elimination"
+    assert anchor_reason("linker", "{}", elim, 0.84, 0.50) is None  # next survivor not clearly behind
+    assert anchor_reason("linker", "{}", elim, 0.79, 0.10) is None  # not confident
+    assert anchor_reason("linker", "{}", "[]", 0.95, 0.10) is None  # nothing was eliminated: similar-sounding is not an anchor
+    weak = '[{"gate": "X", "would_be_confidence": 0.49}]'
+    assert anchor_reason("linker", "{}", weak, 0.95, 0.10) is None  # the eliminated rival was never a real contender
+    assert anchor_reason("linker", '{"name_mention": 0.9}', None, 0.9, 0.9) == "name_mention"
+
+
+def test_a_label_without_a_valid_stage_is_never_drift_eligible():
+    """Found by re-ingesting October 2025: `{{< feature-state feature_gate="X" >}}` has no state, so there is nothing to compare."""
+    from lineage.graph.loader import is_drift_eligible
+
+    assert not is_drift_eligible("hardcoded", "content/en/docs/a.md", None)
+    assert not is_drift_eligible("hardcoded", "content/en/docs/a.md", "experimental")
+
+
+def test_feature_gate_shortcode_variant_is_a_gate_lookup():
+    from pathlib import Path
+
+    from lineage.ingest.docs_labels import extract_labels
+
+    text = "## Gate\n{{< feature-state feature_gate=\"PodTopologyLabelsAdmission\" >}}\n"
+    (label,) = extract_labels(text, "content/en/docs/a.md", Path("a.md"), "0" * 40)
+    assert label.kind == "gate_lookup" and label.gate_name == "PodTopologyLabelsAdmission" and label.state is None

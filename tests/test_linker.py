@@ -1,4 +1,4 @@
-from lineage.link.linker import CONFIDENT, Linker, camel_words, tokens
+from lineage.link.linker import CONFIDENT, FAMILY, Candidate, Linker, camel_words, tokens
 
 GATES = [
     {"name": "LocalStorageCapacityIsolation", "description": "Enable local ephemeral storage and sizeLimit of an emptyDir volume.",
@@ -90,3 +90,17 @@ def test_the_rule_keeps_every_verified_control_gate():
             since = labels[case["claim_id"]]["for_k8s_version"]
             first = gates[case["expected_gate"]]["stages"][0]["from_version"]
             assert version_key(first) <= version_key(since), f"{case['id']}: {case['expected_gate']} starts at {first}, after the label's {since}"
+
+
+def test_semantic_signal_is_off_by_default_and_never_confident_on_its_own():
+    import numpy as np
+
+    gates = [{"name": "AlphaGateOne", "description": "unrelated words", "doc_links": [], "stages": [{"stage": "alpha", "from_version": "1.1", "to_version": None}]}]
+    emb = {"AlphaGateOne": [1.0, 0.0]}
+    off = Linker(gates, None, None, emb)
+    assert "semantic" not in (off.link("zzz qqq", [], None, None, None, [1.0, 0.0]) or [Candidate("x", 0, {})])[0].signals  # sem_max = 0: no signal
+    on = Linker(gates, {"sem_floor": 0.5, "sem_scale": 0.1, "sem_max": 0.9}, None, emb)
+    (c,) = on.link("zzz qqq", [], None, None, None, np.array([1.0, 0.0]))
+    assert c.signals["semantic"] == 0.9 and c.confidence < CONFIDENT  # one family alone is never confident
+    assert on.link("zzz qqq", [], None, None, None, [0.0, 1.0]) == []  # orthogonal embedding: no signal, no candidate
+    assert FAMILY["semantic"] == FAMILY["text_sim"]
