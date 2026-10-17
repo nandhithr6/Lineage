@@ -4,6 +4,8 @@ import FindingsPage from './FindingsPage.jsx'
 import ChatPage from './ChatPage.jsx'
 import AboutPage from './AboutPage.jsx'
 import ExplorePage from './ExplorePage.jsx'
+import InsightsPage from './InsightsPage.jsx'
+import ChangesPage from './ChangesPage.jsx'
 
 const parse = () => {
   const [pathPart, query = ''] = window.location.hash.replace(/^#/, '').split('?')
@@ -25,7 +27,7 @@ export default function App() {
     <div className="app">
       <header className="top">
         <div className="brand"><span className="logo" aria-hidden="true">L</span><div><strong>Lineage</strong><small>knows when its knowledge is out of date</small></div></div>
-        <nav aria-label="Main">{tab('findings', 'Findings')}{tab('explore', 'Explore')}{tab('ask', 'Ask')}{tab('about', 'About the data')}</nav>
+        <nav aria-label="Main">{tab('findings', 'Findings')}{tab('explore', 'Explore')}{tab('changes', 'What changed')}{tab('insights', 'Insights')}{tab('ask', 'Ask')}{tab('about', 'About the data')}</nav>
         <div className={`status ${health?.status === 'ok' ? 'ok' : 'bad'}`} title={health?.detail || ''}>
           {health ? (health.status === 'ok' ? 'API connected' : 'API unavailable') : 'connecting…'}
         </div>
@@ -33,6 +35,8 @@ export default function App() {
       <main>
         {route.page === 'ask' ? <ChatPage llmConfigured={health?.llm_configured} />
           : route.page === 'explore' ? <ExplorePage params={route.params} />
+          : route.page === 'changes' ? <ChangesPage />
+          : route.page === 'insights' ? <InsightsPage />
           : route.page === 'about' ? <AboutPage />
           : <FindingsPage selectedId={route.id} />}
       </main>

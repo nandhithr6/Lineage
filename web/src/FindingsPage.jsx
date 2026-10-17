@@ -25,6 +25,30 @@ function Timeline({ history }) {
   )
 }
 
+function SideBySide({ s }) {
+  const claimed = s.claim.stage
+  const last = s.gate.history[s.gate.history.length - 1]
+  const verified = last ? last.stage : 'unknown'
+  const claimedRows = s.gate.history.filter((h) => h.stage === claimed)
+  const entered = claimedRows[0]?.from
+  return (
+    <section className="sbs" aria-label="Claimed versus verified">
+      <div className="sbs-col claimed">
+        <h3>The docs say</h3>
+        <p className="big"><span className={`stage-chip st-${claimed}`}>{claimed}</span>{s.claim.since ? ` since v${s.claim.since}` : ''}</p>
+        <code className="shortcode">{s.claim.shortcode}</code>
+        <p><Src url={s.claim.source_url}>docs page at the pinned commit</Src></p>
+      </div>
+      <div className="sbs-col verified">
+        <h3>Verified history of {s.gate.name}</h3>
+        <p className="big"><span className={`stage-chip st-${last?.stage}`}>{verified}</span>{s.gate.removed ? ' · gate since removed, feature locked on' : ''}</p>
+        <Timeline history={s.gate.history} />
+        <p className="small">{claimedRows.length ? <>The gate entered <strong>{claimed}</strong> at v{entered}{s.claim.since && entered !== s.claim.since ? <> (the label says v{s.claim.since})</> : null}.</> : <>The gate never had a {claimed} stage in the sampled history.</>} <Src url={s.gate.source_url}>gate file at the pinned commit</Src></p>
+      </div>
+    </section>
+  )
+}
+
 function Diff({ diff }) {
   return <pre className="diff" aria-label="Proposed change">{diffLines(diff).filter((l) => l.text).map((l, i) => <div key={i} className={`d-${l.kind}`}>{l.text}</div>)}</pre>
 }
@@ -61,6 +85,8 @@ function Detail({ id }) {
         <a href={s.page.url} target="_blank" rel="noreferrer" className="src">Open the live docs page ↗</a>
       </header>
 
+      <SideBySide s={s} />
+
       <section><h3>1 · The claim on the page</h3>
         <p>Section <strong>“{s.claim.heading}”</strong>, line {s.claim.line}</p>
         <code className="shortcode">{s.claim.shortcode}</code>
@@ -72,6 +98,7 @@ function Detail({ id }) {
           <p><strong>{s.gate.name}</strong> <Confidence value={s.link.link_confidence} method={s.link.method} /></p>
           {s.link.method === 'manual' && <p className="note">Verified by hand by {s.link.verified_by} on {s.link.verified_on}. The automatic linker alone scored {s.link.linker_confidence}.<br /><small>{s.link.reason}</small></p>}
           {(s.link.eliminated || []).length > 0 && <p className="note">Ruled out: {s.link.eliminated.map((e) => e.reason).join('; ')}.</p>}
+          {s.finding.anchored_by === 'elimination' && <p className="note"><strong>Trusted without a hand check:</strong> the rule above removed rivals, and this gate is the clear winner (score at least 0.8, next candidate below 0.5).</p>}
           {s.link.method === 'linker' && s.link.signals && <p className="note">Evidence for the link: {Object.entries(s.link.signals).map(([k, v]) => `${k} ${typeof v === 'number' ? v.toFixed(2) : v}`).join(' · ')}</p>}
         </> : <p className="muted">Insufficient evidence: no link recorded.</p>}
       </section>
@@ -86,6 +113,14 @@ function Detail({ id }) {
           <p><strong>{s.kep.title}</strong> <small>({s.kep.id})</small></p>
           <p>Status {s.kep.status} · stage {s.kep.stage} · milestone {s.kep.milestone} · team <strong>{s.kep.sig}</strong> · linked by {s.kep.method} ({s.kep.confidence})</p>
           <Src url={s.kep.introduces_url}>design document</Src>
+          {(s.kep.others || []).length > 0 && <p className="small">Also related: {s.kep.others.map((o) => o.id).join(', ')}</p>}
+          <h4>Pull requests that implement it</h4>
+          {(s.kep.prs || []).length === 0 ? <p className="muted small">No pull request in the loaded data (sig-storage, sig-node, sig-apps, last two years) links to this design document.</p> : (
+            <ul className="prs">{s.kep.prs.map((x) => (
+              <li key={x.number}><a href={x.url} target="_blank" rel="noreferrer">#{x.number}</a> {x.title} <small>merged {String(x.merged_at || '').slice(0, 10)} · inferred from {x.method.replace(/_/g, ' ')} ({Math.round(x.confidence * 100)}%): “{x.evidence}”</small>
+                {x.issues.length > 0 && <ul>{x.issues.map((i) => <li key={i.id}>closes ticket <a href={i.url} target="_blank" rel="noreferrer">{i.id}</a> ({i.state.toLowerCase()}): {i.title}</li>)}</ul>}
+              </li>))}</ul>)}
+          <p className="small muted">{s.kep.prs_strong} pull request(s) link here at 70% or more; {s.kep.prs_weak} more only mention its feature gate. A mention is evidence of relation, not proof that the change implements the design.</p>
         </> : <p className="muted">Insufficient evidence: no design decision linked to this gate.</p>}
       </section>
 
@@ -100,7 +135,8 @@ function Detail({ id }) {
             <div key={g}><h4>{g === 'docs approver' ? 'Docs approvers: can merge the fix' : 'Domain experts: can check the facts'}</h4>
               <ul className="reviewers">{people.map((r) => (
                 <li key={r.handle}><a href={`https://github.com/${r.handle}`} target="_blank" rel="noreferrer">@{r.handle}</a> <small>score {r.score}</small>
-                  <ul>{r.reasons.slice(0, 3).map((x, i) => <li key={i}>{x.reason} <Src url={x.source_url} /></li>)}</ul></li>))}</ul></div>
+                  <ul>{r.reasons.filter((x) => x.category !== 'connection').slice(0, 3).map((x, i) => <li key={i}>{x.reason} <Src url={x.source_url} /></li>)}
+                    {r.reasons.filter((x) => x.category === 'connection').map((x, i) => <li key={'c' + i} className="connection">{x.reason} <Src url={x.source_url} /></li>)}</ul></li>))}</ul></div>
           ) : null
         })}
         <p className="muted small">Scores are Lineage’s own heuristic: each kind of role counts once. Emeritus approvers are never suggested.</p>
