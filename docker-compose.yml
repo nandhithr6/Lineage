@@ -13,7 +13,6 @@ services:
       context: .
       dockerfile: Dockerfile.single
     image: lineage-single
-    container_name: lineage
     ports:
       - "127.0.0.1:${PORT:-7860}:7860"   # local only; use scripts/share_demo.sh for a temporary public link
     environment:
