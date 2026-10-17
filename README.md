@@ -308,6 +308,8 @@ Hard-coded labels (`{{< feature-state for_k8s_version="v1.8" state="alpha" >}}`)
 
 ## Evaluation
 
+**Human verification:** the audits and the draft questions are AI-assisted until a person checks them; [docs/VERIFY.md](docs/VERIFY.md) and `python3 scripts/verify.py` walk through each item. **Team tasks** for the last day: [docs/TEAM_TASKS.md](docs/TEAM_TASKS.md).
+
 Full report: [eval/results/drift_report.md](eval/results/drift_report.md). Headlines, with their caveats:
 
 | What | Result | Caveat |
