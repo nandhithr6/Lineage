@@ -49,6 +49,9 @@ KEYS = [
     ("CodePath", "id"),
     ("Team", "id"),
     ("PR", "number"),
+    ("Chunk", "id"),
+    ("Issue", "id"),
+    ("Note", "id"),
 ]
 
 
@@ -61,6 +64,95 @@ def ensure_schema(g: Graph) -> None:
             log.info("created index + unique constraint on %s.%s", label, prop)
         except Exception as e:  # already exists on reruns
             log.debug("schema %s.%s: %s", label, prop, e)
+
+
+CHUNKS_SNAPSHOT = Path("snapshot/chunks.jsonl")
+PR_KEPS_SNAPSHOT = Path("snapshot/pr_keps.jsonl")
+VECTOR_DIM = 768
+CHUNK_PARENT_KEY = {"DocSection": "id", "FeatureGate": "name", "KEP": "id", "SIG": "id", "Team": "id", "CodePath": "id", "Claim": "id"}  # label -> identifying property
+
+
+def ensure_vector_index(g: Graph) -> None:
+    """HNSW cosine index over Chunk.embedding (768 dims, the size of BAAI/bge-base-en-v1.5). Safe to call repeatedly."""
+    try:
+        g.query(f"CREATE VECTOR INDEX FOR (c:Chunk) ON (c.embedding) OPTIONS {{dimension: {VECTOR_DIM}, similarityFunction: 'cosine'}}")
+        log.info("created vector index on Chunk.embedding")
+    except Exception as e:  # already exists on reruns
+        log.debug("vector index: %s", e)
+
+
+Q_CHUNK = """
+UNWIND $rows AS r
+MERGE (c:Chunk {id: r.id})
+SET c.text = r.text, c.kind = r.kind, c.source_url = r.source_url, c.line_start = r.line_start, c.line_end = r.line_end, c.parent = r.parent, c.model = r.model,
+    c.embedding = vecf32(r.vec), c.recorded_at = coalesce(c.recorded_at, $now)
+"""
+
+
+def load_chunks(g: Graph, path: Path, now: str) -> int:
+    """Text chunks with their embeddings (FalkorDB vector index) and a CHUNK_OF edge to the node each chunk is about, so a vector hit can be expanded along the graph."""
+    from lineage.agent.local_embeddings import MODEL, unpack
+
+    ensure_vector_index(g)
+    rows = [{"id": r["id"], "text": r["text"], "kind": r["kind"], "source_url": r["source_url"], "line_start": r["line_start"], "line_end": r["line_end"],
+             "parent": r["parent"], "model": MODEL, "vec": unpack(r["vec"])} for r in read_jsonl(path)]
+    g.query("MATCH (c:Chunk) WHERE NOT c.id IN $ids DETACH DELETE c", {"ids": [r["id"] for r in rows]})  # a chunk that no longer exists must not linger
+    run(g, Q_CHUNK, rows, now)
+    by_label: dict[str, list[dict]] = {}
+    for r in rows:
+        if r["parent"]:
+            label, _, key = r["parent"].partition(":")
+            by_label.setdefault(label, []).append({"id": r["id"], "key": key, "source_url": r["source_url"]})
+    for label, prop in CHUNK_PARENT_KEY.items():
+        run(g, f"UNWIND $rows AS r MATCH (c:Chunk {{id: r.id}}), (p:{label} {{{prop}: r.key}}) MERGE (c)-[e:CHUNK_OF]->(p) "
+               "SET e.source_url = r.source_url, e.extracted_by = 'structured', e.confidence = 1.0, e.recorded_at = coalesce(e.recorded_at, $now)", by_label.get(label, []), now)
+    log.info("chunks: %d (vector index, 768 dims)", len(rows))
+    return len(rows)
+
+
+Q_ISSUE = """
+UNWIND $rows AS r
+MERGE (i:Issue {id: r.id})
+SET i.number = r.number, i.repo = r.repo, i.title = r.title, i.state = r.state, i.url = r.url, i.created_at = r.created_at, i.closed_at = r.closed_at,
+    i.source_url = r.url, i.recorded_at = coalesce(i.recorded_at, $now)
+"""
+Q_FIXES = """
+UNWIND $rows AS r
+MATCH (p:PR {number: r.pr}), (i:Issue {id: r.issue})
+MERGE (p)-[e:FIXES]->(i)
+SET e.source_url = r.pr_url, e.extracted_by = 'structured', e.confidence = 1.0, e.recorded_at = coalesce(e.recorded_at, $now)
+"""
+Q_IMPLEMENTS = """
+UNWIND $rows AS r
+MATCH (p:PR {number: r.pr}), (k:KEP {id: r.kep})
+MERGE (p)-[e:IMPLEMENTS]->(k)
+SET e.method = r.method, e.confidence = r.confidence, e.evidence = r.evidence, e.source_url = r.source_url, e.extracted_by = 'inferred',
+    e.recorded_at = coalesce(e.recorded_at, $now)
+"""
+
+
+def load_issues(g: Graph, prs: list[dict], now: str) -> tuple[int, int]:
+    """Tickets: GitHub's own `closingIssuesReferences` of each PR (a "Fixes #N" that GitHub recognised), as Issue nodes and PR-[:FIXES]->Issue edges."""
+    issues: dict[str, dict] = {}
+    fixes: list[dict] = []
+    for pr in prs:
+        for c in pr.get("closes") or []:
+            iid = f"{c['repo']}#{c['number']}"
+            issues[iid] = {"id": iid, "number": c["number"], "repo": c["repo"], "title": c["title"], "state": c["state"], "url": c["url"],
+                           "created_at": c["created_at"], "closed_at": c["closed_at"]}
+            fixes.append({"pr": pr["number"], "issue": iid, "pr_url": pr["url"]})
+    run(g, Q_ISSUE, list(issues.values()), now)
+    run(g, Q_FIXES, fixes, now)
+    log.info("issues: %d, FIXES edges: %d", len(issues), len(fixes))
+    return len(issues), len(fixes)
+
+
+def load_pr_keps(g: Graph, rows: list[dict], now: str) -> int:
+    """Inferred PR -> KEP links (lineage/link/pr_kep.py): derived hypotheses, so the previous run's edges are dropped first."""
+    g.query("MATCH ()-[e:IMPLEMENTS]->() DELETE e")
+    run(g, Q_IMPLEMENTS, rows, now)
+    log.info("IMPLEMENTS edges: %d", len(rows))
+    return len(rows)
 
 
 def batches(rows: list[dict], size: int = BATCH) -> Iterable[list[dict]]:
@@ -80,9 +172,11 @@ def gate_from_record(rec: dict) -> Gate:
     return Gate(**{**rec, "stages": stages})
 
 
-def is_drift_eligible(kind: str, page_path: str) -> bool:
-    """Only hard-coded labels can go stale, and the style guide's shortcodes are examples, not claims."""
-    return kind == "hardcoded" and not page_path.startswith(STYLE_GUIDE_PREFIX)
+def is_drift_eligible(kind: str, page_path: str, state: str | None = "stable") -> bool:
+    """Only hard-coded labels with a real stage can go stale, and the style guide's shortcodes are examples, not claims."""
+    from lineage.ingest.docs_labels import VALID_STATES
+
+    return kind == "hardcoded" and state in VALID_STATES and not page_path.startswith(STYLE_GUIDE_PREFIX)
 
 
 def run(g: Graph, query: str, rows: list[dict], now: str) -> None:
@@ -152,7 +246,7 @@ def load_links(g: Graph, links_path: Path, claims_source: dict[str, str], now: s
     """ABOUT edges from the linker: up to 3 candidate gates per hard-coded claim, each with its own confidence."""
     # Linker candidates are derived hypotheses, regenerated on every run: drop the previous run's edges so a candidate the
     # linker no longer produces cannot linger (MERGE alone never removes). Hand-verified (manual) and gate_name links stay.
-    g.query("MATCH ()-[a:ABOUT {method: 'linker'}]->() DELETE a")
+    g.query("MATCH ()-[a:ABOUT]->() WHERE a.method IN ['linker', 'manual'] DELETE a")  # manual links are re-created from verified_links.jsonl right after
     rows = [
         {"claim_id": link["claim_id"], "gate": c["gate"], "confidence": c["confidence"],
          "signals": json.dumps(c["signals"], sort_keys=True), "source_url": claims_source[link["claim_id"]],
@@ -171,7 +265,7 @@ _EDGE_PROV = """SET e.source_url = r.source_url, e.extracted_by = r.extracted_by
 
 def edge_query(rel: str, src: tuple[str, str], dst: tuple[str, str], extra: str = "") -> str:
     assert rel in {"OWNED_BY", "PARTICIPATES", "INTRODUCES", "REPLACES", "SEE_ALSO", "SUPERSEDED_BY", "AUTHORED",
-                   "APPROVED_KEP", "CHAIRS", "TECH_LEAD_OF", "EMERITUS_LEAD_OF", "OWNS", "CHILD_OF", "IN_PATH", "REVIEWED", "APPROVED", "TOUCHES"}, rel
+                   "APPROVED_KEP", "CHAIRS", "TECH_LEAD_OF", "EMERITUS_LEAD_OF", "OWNS", "CHILD_OF", "IN_PATH", "REVIEWED", "APPROVED", "TOUCHES", "REVIEWED_BY"}, rel
     return (f"UNWIND $rows AS r MATCH (a:{src[0]} {{{src[1]}: r.src}}), (b:{dst[0]} {{{dst[1]}: r.dst}}) "
             f"MERGE (a)-[e:{rel}]->(b) {extra} {_EDGE_PROV}")
 
@@ -375,6 +469,7 @@ def load_prs(g: Graph, prs: list[dict], known_dirs: set[str], now: str) -> dict[
     people = {p["author"] for p in prs if not is_bot(p["author"])} | {r["login"] for p in prs for r in p["reviews"] if not is_bot(r["login"])}
     run(g, Q_PERSON, [{"handle": h, "name": None} for h in sorted(people)], now)
     authored, reviewed, approved, touches = [], [], [], []
+    reviewed_by_pr: dict[int, list[dict]] = {}
     for p in prs:
         if not is_bot(p["author"]):
             authored.append({"src": p["author"], "dst": p["number"], "source_url": p["url"], "at": p["created_at"], "count": 1})
@@ -390,17 +485,31 @@ def load_prs(g: Graph, prs: list[dict], known_dirs: set[str], now: str) -> dict[
         for login, e in per.items():
             row = {"src": login, "dst": p["number"], "source_url": p["url"], "at": e["last"], "count": e["n"]}
             reviewed.append(row)
+            reviewed_by_pr.setdefault(p["number"], []).append(row)
             if e["approved"]:
                 approved.append({**row, "at": e["approved"]})
         for d in {nearest_codepath(x, known_dirs) for x in p["dirs"]} - {None}:
             touches.append({"src": p["number"], "dst": f"kubernetes:{d}", "source_url": p["url"]})
+    # Derived review network for graph algorithms: (author)-[:REVIEWED_BY]->(reviewer), one edge per pair, counting the PRs. Only mainline, folder-level work counts
+    # (backports and repo-wide PRs say nothing about who relies on whom). Direction matters for PageRank: a reviewer many people rely on collects the incoming edges.
+    pair: dict[tuple[str, str], dict] = {}
+    for p, row in zip(prs, rows):
+        if row["cherry_pick"] or row["cross_cutting"] or is_bot(p["author"]):
+            continue
+        for rv in reviewed_by_pr.get(p["number"], []):
+            e = pair.setdefault((p["author"], rv["src"]), {"src": p["author"], "dst": rv["src"], "count": 0, "at": rv["at"], "source_url": p["url"]})
+            e["count"] += 1
+            e["at"] = max(e["at"] or "", rv["at"] or "")
     extra = "SET e.at = r.at, e.count = r.count"
+    for e in pair.values():
+        e["extracted_by"], e["confidence"] = "inferred", 1.0  # derived from PR reviews, not stated by any source
+    run(g, edge_query("REVIEWED_BY", ("Person", "handle"), ("Person", "handle"), extra), list(pair.values()), now)
     run(g, edge_query("AUTHORED", ("Person", "handle"), ("PR", "number"), extra), prov(authored), now)
     run(g, edge_query("REVIEWED", ("Person", "handle"), ("PR", "number"), extra), prov(reviewed), now)
     run(g, edge_query("APPROVED", ("Person", "handle"), ("PR", "number"), extra), prov(approved), now)
     run(g, edge_query("TOUCHES", ("PR", "number"), ("CodePath", "id")), prov(touches), now)
-    log.info("PRs: %d, people: %d, authored %d, reviewed %d, approved %d, touches %d", len(prs), len(people), len(authored), len(reviewed), len(approved), len(touches))
-    return {"prs": len(prs), "authored": len(authored), "reviewed": len(reviewed), "approved": len(approved), "touches": len(touches)}
+    log.info("PRs: %d, people: %d, authored %d, reviewed %d, approved %d, touches %d, review pairs %d", len(prs), len(people), len(authored), len(reviewed), len(approved), len(touches), len(pair))
+    return {"prs": len(prs), "authored": len(authored), "reviewed": len(reviewed), "approved": len(approved), "touches": len(touches), "review_pairs": len(pair)}
 
 
 def load_gates(g: Graph, gates: list[Gate], now: str) -> None:
@@ -434,7 +543,7 @@ def load_labels(g: Graph, labels: list[dict], now: str) -> None:
         row = dict(lab)
         row["section_id"] = f"{lab['page_path']}#{lab['anchor'] or ''}"
         row["page_source_url"] = lab["source_url"].split("#")[0]
-        row["drift_eligible"] = is_drift_eligible(lab["kind"], lab["page_path"])
+        row["drift_eligible"] = is_drift_eligible(lab["kind"], lab["page_path"], lab["state"])
         rows.append(row)
     run(g, Q_DOC, rows, now)
     lookups = [r for r in rows if r["kind"] == "gate_lookup"]
@@ -446,17 +555,17 @@ def counts(g: Graph) -> dict[str, int]:
     out: dict[str, int] = {}
     for label in ["Release", "FeatureGate", "DocPage", "DocSection", "Claim"]:
         out[label] = g.ro_query(f"MATCH (n:{label}) RETURN count(n)").result_set[0][0]
-    for label in ["KEP", "SIG", "Person", "CodePath", "Team", "PR"]:
+    for label in ["KEP", "SIG", "Person", "CodePath", "Team", "PR", "Chunk", "Issue"]:
         out[label] = g.ro_query(f"MATCH (n:{label}) RETURN count(n)").result_set[0][0]
     out["Finding"] = g.ro_query("MATCH (n:Finding {active: true}) RETURN count(n)").result_set[0][0]  # inactive ones are history
     for rel in ["STAGE_IN", "HAS_SECTION", "HAS_CLAIM", "ABOUT", "OWNED_BY", "PARTICIPATES", "INTRODUCES", "REPLACES",
                 "SEE_ALSO", "SUPERSEDED_BY", "AUTHORED", "APPROVED_KEP", "CHAIRS", "TECH_LEAD_OF", "EMERITUS_LEAD_OF",
-                "CHILD_OF", "IN_PATH", "OWNS", "APPROVER_OF", "REVIEWER_OF", "EMERITUS_APPROVER_OF", "MEMBER_OF", "REVIEWED", "APPROVED", "TOUCHES"]:
+                "CHILD_OF", "IN_PATH", "OWNS", "APPROVER_OF", "REVIEWER_OF", "EMERITUS_APPROVER_OF", "MEMBER_OF", "REVIEWED", "APPROVED", "TOUCHES", "CHUNK_OF", "FIXES", "IMPLEMENTS"]:
         out[rel] = g.ro_query(f"MATCH ()-[e:{rel}]->() RETURN count(e)").result_set[0][0]
     return out
 
 
-def load_all(g: Graph, gates_path: Path = GATES_SNAPSHOT, labels_path: Path = LABELS_SNAPSHOT, include_prs: bool = True) -> dict[str, int]:
+def load_all(g: Graph, gates_path: Path = GATES_SNAPSHOT, labels_path: Path = LABELS_SNAPSHOT, include_prs: bool = True, include_chunks: bool = True) -> dict[str, int]:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     ensure_schema(g)
     load_gates(g, [gate_from_record(r) for r in read_jsonl(gates_path)], now)
@@ -472,9 +581,18 @@ def load_all(g: Graph, gates_path: Path = GATES_SNAPSHOT, labels_path: Path = LA
         load_owners(g, Path("snapshot"), labels, now)
     if include_prs and PRS_SNAPSHOT.exists():
         known = {c["dir"] for c in read_jsonl(Path("snapshot") / "codepaths.jsonl") if c["repo"] == "kubernetes"}
-        load_prs(g, read_jsonl(PRS_SNAPSHOT), known, now)
+        prs = read_jsonl(PRS_SNAPSHOT)
+        load_prs(g, prs, known, now)
+        load_issues(g, prs, now)
+        if PR_KEPS_SNAPSHOT.exists():
+            load_pr_keps(g, read_jsonl(PR_KEPS_SNAPSHOT), now)
     if VERIFIED_LINKS.exists():
         load_verified(g, VERIFIED_LINKS, {x["id"]: x["source_url"] for x in labels}, now)
+    if include_chunks and CHUNKS_SNAPSHOT.exists():
+        load_chunks(g, CHUNKS_SNAPSHOT, now)
+    from lineage.graph.paths import set_path_weights
+
+    set_path_weights(g)  # algo.SPpaths needs a numeric weight on every edge it may use (path_between, reviewer connections)
     return counts(g)
 
 

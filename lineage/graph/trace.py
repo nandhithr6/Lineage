@@ -13,7 +13,7 @@ from collections import defaultdict
 
 from falkordb import Graph
 
-from lineage.graph.queries import LATEST, effective_owners, experts_for, official_vs_actual
+from lineage.graph.queries import LATEST, effective_owners, experts_for, network_ranks, official_vs_actual
 
 Q_FINDINGS = """
 MATCH (f:Finding {active: true})-[:FOR_CLAIM]->(c:Claim)<-[:HAS_CLAIM]-(s:DocSection)<-[:HAS_SECTION]-(p:DocPage)
@@ -21,6 +21,8 @@ WHERE ($q IS NULL OR p.path CONTAINS $q OR f.key = $q)
 RETURN f.key, f.kind, f.severity, f.message, f.claimed_stage, f.claimed_since, f.actual_stages, f.entered_version,
        f.gate_removed, c.id, c.shortcode, c.line, c.source_url, s.heading, p.path, p.url, p.title
 """
+NETWORK_TOP = 40  # a person counts as central when they are in the top 40 of the review network
+PR_STRONG = 0.70  # PR -> KEP links at or above this count as 'implementing' (lineage/link/pr_kep.py)
 SEVERITY_ORDER = {"finding": 0, "minor": 1, "review": 2}
 
 Q_FINDING_GATE = "MATCH (f:Finding {key: $k})-[:FOR_GATE]->(g:FeatureGate), (f)-[:AS_OF]->(r:Release) RETURN g.name, g.removed, g.source_url, r.version"
@@ -34,6 +36,13 @@ MATCH (k:KEP)-[i:INTRODUCES]->(g:FeatureGate {name: $g})
 OPTIONAL MATCH (k)-[:OWNED_BY]->(s:SIG)
 RETURN k.id, k.title, k.status, k.stage, k.latest_milestone, k.source_url, i.method, i.confidence, i.source_url, s.id, s.name, s.source_url
 """
+Q_KEP_PRS = """
+MATCH (p:PR)-[e:IMPLEMENTS]->(k:KEP {id: $k}) WHERE e.confidence >= $min
+OPTIONAL MATCH (p)-[f:FIXES]->(i:Issue) WHERE ID(f) >= 0
+RETURN p.number, p.title, p.merged_at, p.url, e.method, e.confidence, e.evidence, collect(DISTINCT [i.id, i.title, i.state, i.url])
+ORDER BY e.confidence DESC, p.merged_at DESC LIMIT $limit
+"""
+Q_KEP_PR_COUNTS = "MATCH (p:PR)-[e:IMPLEMENTS]->(k:KEP {id: $k}) RETURN sum(CASE WHEN e.confidence >= $min THEN 1 ELSE 0 END), sum(CASE WHEN e.confidence < $min THEN 1 ELSE 0 END)"
 Q_KEP_APPROVERS = "MATCH (p:Person)-[:APPROVED_KEP]->(k:KEP {id: $k}) RETURN p.handle"
 Q_SIG_LEADERS = "MATCH (p:Person)-[r:CHAIRS|TECH_LEAD_OF]->(s:SIG {id: $s}) RETURN p.handle, type(r), r.source_url"
 Q_SIG_PATHS = "MATCH (s:SIG {id: $s})-[:OWNS]->(c:CodePath) RETURN c.id, c.path ORDER BY c.path"
@@ -71,13 +80,37 @@ def _short(items: list[str], n: int = 3) -> str:
     return ", ".join(items[:n]) + (f" (+{len(items) - n} more)" if len(items) > n else "")
 
 
-def suggest_reviewers(g: Graph, page_path: str, sig_id: str | None, kep_id: str | None, as_of: int = LATEST, today: datetime | None = None) -> list[dict]:
+_CONNECTIONS: dict[tuple, tuple[float, dict | None]] = {}
+
+
+def connection_to(g: Graph, handle: str, gate: str, ttl: int = 600) -> dict | None:
+    """How a person connects to a feature gate: the cheapest structural path (FalkorDB algo.SPpaths), cached for a few minutes. None when there is none within 4 hops."""
+    import time
+
+    from lineage.graph.paths import PathTimeout, shortest_path
+
+    key = (g.name, handle, gate)
+    hit = _CONNECTIONS.get(key)
+    if hit and time.time() - hit[0] < ttl:
+        return hit[1]
+    try:
+        p = shortest_path(g, ("Person", handle), ("FeatureGate", gate))
+    except PathTimeout:
+        p = None
+    _CONNECTIONS[key] = (time.time(), p)
+    return p
+
+
+CONNECTION_PEOPLE = 6  # path search is run for the best-scoring people only
+
+
+def suggest_reviewers(g: Graph, page_path: str, sig_id: str | None, kep_id: str | None, as_of: int = LATEST, today: datetime | None = None, gate: str | None = None) -> list[dict]:
     """Docs approvers + feature-team code approvers + design-decision approvers + team leads, each with reasons.
 
     A person scores once per CATEGORY (docs approver 1.0, code approver 1.0, KEP approver 0.8, SIG lead 0.5), so holding the
     same role through several paths or teams does not inflate the ranking. Emeritus approvers are never suggested.
     """
-    WEIGHT = {"docs": 1.0, "code": 1.0, "kep": 0.8, "active": 0.7, "lead": 0.5}
+    WEIGHT = {"docs": 1.0, "code": 1.0, "kep": 0.8, "active": 0.7, "lead": 0.5, "network": 0.3}
     cats: dict[str, dict[str, dict]] = defaultdict(dict)  # handle -> category -> {paths, teams, url}
 
     def add(handle: str, cat: str, path: str | None, team: str | None, url: str | None) -> None:
@@ -119,6 +152,13 @@ def suggest_reviewers(g: Graph, page_path: str, sig_id: str | None, kep_id: str 
     if kep_id:
         for (handle,) in g.ro_query(Q_KEP_APPROVERS, {"k": kep_id}).result_set:
             add(handle, "kep", None, None, None)
+    # Centrality in the review network (FalkorDB PageRank) supports people ALREADY suggested for another reason; it never adds anyone by itself.
+    ranks = network_ranks(g) if cats else {}
+    for handle in cats:
+        r = ranks.get(handle)
+        if r and r["rank"] <= NETWORK_TOP:
+            ex = g.ro_query("MATCH (:Person {handle: $h})-[:REVIEWED]->(pr:PR) RETURN pr.url ORDER BY pr.merged_at DESC LIMIT 1", {"h": handle}).result_set
+            cats[handle]["network"] = {"paths": [], "teams": [], "url": ex[0][0] if ex else None, "rank": r}
     out = []
     for handle, by_cat in cats.items():
         reasons = []
@@ -128,10 +168,21 @@ def suggest_reviewers(g: Graph, page_path: str, sig_id: str | None, kep_id: str 
                     "code": f"approves code in {_short(e['paths'], 2)} ({sig_id}){via}",
                     "kep": f"approved the design decision {kep_id.split('/')[1] if kep_id else ''}",
                     "active": f"actively reviews: {_short(e['paths'], 2)}",
-                    "lead": f"{e.get('role', 'lead')} of {sig_id}"}[cat]
+                    "lead": f"{e.get('role', 'lead')} of {sig_id}",
+                    "network": (f"central in the review network: #{e['rank']['rank']} of {e['rank']['of']:,} people by PageRank, {e['rank']['authors_served']} different authors rely on their reviews "
+                                "(a position in the network, not a measure of skill)") if "rank" in e else ""}[cat]
             reasons.append({"reason": text, "source_url": e["url"], "category": cat})
         out.append({"handle": handle, "score": round(sum(WEIGHT[c] for c in by_cat), 2), "reasons": reasons})
-    return sorted(out, key=lambda p: (-p["score"], p["handle"]))
+    ranked = sorted(out, key=lambda p: (-p["score"], p["handle"]))
+    if gate:  # how each of the best candidates connects to the finding's feature gate: a path computed in FalkorDB, with every hop's source (score unchanged)
+        from lineage.graph.paths import describe_path
+
+        for person in [p for p in ranked if any(r["category"] != "docs" for r in p["reasons"])][:CONNECTION_PEOPLE]:
+            conn = connection_to(g, person["handle"], gate)
+            if conn:
+                person["reasons"].append({"reason": f"connects to {gate}: {describe_path(conn)}", "source_url": next((h["source_url"] for h in conn["hops"] if h["source_url"]), None),
+                                          "category": "connection", "hops": conn["hops"]})
+    return ranked
 
 
 def build_trace(g: Graph, query: str | None, finding_key: str | None = None) -> dict:
@@ -183,7 +234,17 @@ def build_trace(g: Graph, query: str | None, finding_key: str | None = None) -> 
                        "status": primary["status"], "stage": primary["stage"], "milestone": primary["milestone"]}, primary["introduces_url"])
         if primary["sig"]:
             sig_eid = add("edge", "OWNED_BY", f"KEP:{primary['id']}", f"SIG:{primary['sig']}", {"sig_name": primary["sig_name"]}, primary["source_url"])
-    everyone = suggest_reviewers(g, page_path, primary["sig"] if primary else None, primary["id"] if primary else None)
+    kep_prs: list[dict] = []
+    prs_strong = prs_weak = 0
+    if primary:
+        prs_strong, prs_weak = (g.ro_query(Q_KEP_PR_COUNTS, {"k": primary["id"], "min": PR_STRONG}).result_set or [[0, 0]])[0]
+        for num, title, merged, url, method, conf, matched, issues in g.ro_query(Q_KEP_PRS, {"k": primary["id"], "min": PR_STRONG, "limit": 5}).result_set:
+            issues = [{"id": i[0], "title": i[1], "state": i[2], "url": i[3]} for i in issues if i and i[0]]
+            eid = add("edge", "IMPLEMENTS", f"PR:{num}", f"KEP:{primary['id']}", {"title": title, "merged_at": merged, "method": method, "confidence": conf, "evidence": matched}, url)
+            for i in issues:
+                add("edge", "FIXES", f"PR:{num}", f"Issue:{i['id']}", {"title": i["title"], "state": i["state"]}, i["url"])
+            kep_prs.append({"number": num, "title": title, "merged_at": merged, "url": url, "method": method, "confidence": conf, "evidence": matched, "issues": issues, "evidence_id": eid})
+    everyone = suggest_reviewers(g, page_path, primary["sig"] if primary else None, primary["id"] if primary else None, gate=gate)
     docs_group = [r for r in everyone if any(x["category"] == "docs" for x in r["reasons"])][:4]  # can merge the doc fix
     expert_group = [r for r in everyone if r not in docs_group and any(x["category"] != "docs" for x in r["reasons"])][:4]  # can check the facts
     reviewers = [{**r, "group": "docs approver"} for r in docs_group] + [{**r, "group": "domain expert"} for r in expert_group]
@@ -197,7 +258,8 @@ def build_trace(g: Graph, query: str | None, finding_key: str | None = None) -> 
         path += [f"KEP:{primary['id']}"] + ([f"SIG:{primary['sig']}"] if primary["sig"] else [])
     bundle["path"] = path
     bundle["sections"].update({
-        "finding": {"key": key, "kind": kind, "severity": severity, "message": message, "evidence_id": finding_eid},
+        "finding": {"key": key, "kind": kind, "severity": severity, "message": message, "evidence_id": finding_eid,
+                    "anchored_by": (g.ro_query("MATCH (f:Finding {key: $k}) RETURN f.anchored_by", {"k": key}).result_set or [[None]])[0][0]},
         "page": {"path": page_path, "url": page_url, "title": page_title},
         "claim": {"id": claim_id, "shortcode": shortcode, "line": line, "heading": heading, "stage": c_stage, "since": c_since,
                   "source_url": claim_url, "evidence_id": claim_eid},
@@ -205,7 +267,7 @@ def build_trace(g: Graph, query: str | None, finding_key: str | None = None) -> 
                   "signals": json.loads(link[0][3]) if link[0][3] else None, "verified_by": link[0][4], "verified_on": link[0][5],
                   "reason": link[0][6], "source_url": link[0][7], "eliminated": json.loads(link[0][8]) if link[0][8] else [], "evidence_id": link_eid} if link else None),
         "gate": {"name": gate, "removed": bool(gate_removed), "source_url": gate_url, "history": history, "history_evidence": hist_eids},
-        "kep": ({**primary, "evidence_id": kep_eid, "sig_evidence_id": sig_eid, "others": keps[1:]} if primary else None),
+        "kep": ({**primary, "evidence_id": kep_eid, "sig_evidence_id": sig_eid, "others": keps[1:], "prs": kep_prs, "prs_strong": prs_strong, "prs_weak": prs_weak} if primary else None),
         "reviewers": [{**r, "evidence_id": e} for r, e in zip(reviewers, reviewer_eids)],
     })
     return bundle

@@ -33,6 +33,7 @@ REPO = "kubernetes/kubernetes"
 PAGE = 25
 FILES = 100  # per PR; more than that is flagged as truncated
 REVIEWS = 30
+BODY_MAX = 3000
 SAFETY = 150  # keep this many points in reserve
 
 QUERY = """
@@ -42,7 +43,8 @@ query($q: String!, $after: String, $n: Int!) {
     issueCount
     pageInfo { hasNextPage endCursor }
     nodes { ... on PullRequest {
-      number title url mergedAt createdAt additions deletions changedFiles baseRefName
+      number title url body mergedAt createdAt additions deletions changedFiles baseRefName
+      closingIssuesReferences(first: 10) { nodes { number title url state createdAt closedAt repository { nameWithOwner } } }
       author { login }
       mergedBy { login }
       labels(first: 20) { nodes { name } }
@@ -170,10 +172,15 @@ def normalize(cache_dir: Path = CACHE) -> list[dict]:
                 "files_total": n["files"]["totalCount"], "files_truncated": n["files"]["totalCount"] > len(files),
                 "reviews": [{"login": (r["author"] or {}).get("login", "").lower(), "state": r["state"], "at": r["submittedAt"]} for r in n["reviews"]["nodes"] if r.get("author")],
                 "reviews_total": n["reviews"]["totalCount"], "reviews_truncated": n["reviews"]["totalCount"] > len(n["reviews"]["nodes"]),
+                "body": (n.get("body") or "")[:BODY_MAX],  # head of the description: the KEP / tracking-issue links and "Fixes #N" lines sit at the top
+                "closes": [{"repo": i["repository"]["nameWithOwner"], "number": i["number"], "title": i["title"], "url": i["url"], "state": i["state"],
+                            "created_at": i["createdAt"], "closed_at": i["closedAt"]} for i in ((n.get("closingIssuesReferences") or {}).get("nodes") or []) if i],
             }
             old = prs.get(row["number"])
             if old:
                 row["sigs"] = sorted(set(old["sigs"]) | set(row["sigs"]))
+                if "closingIssuesReferences" not in n and "body" in old:  # an older cached response (before body / closing issues were fetched) must not erase them
+                    row["body"], row["closes"] = old["body"], old["closes"]
                 if old.get("base_ref") and not row["base_ref"]:  # an older cached response (before baseRefName was fetched) must not erase it
                     row["base_ref"] = old["base_ref"]
             prs[row["number"]] = row

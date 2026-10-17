@@ -19,6 +19,8 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import numpy as np
+
 from lineage.ingest.docs_labels import SNAPSHOT as LABELS_SNAPSHOT
 from lineage.ingest.gates import SNAPSHOT as GATES_SNAPSHOT
 from lineage.ingest.gates import version_key
@@ -50,6 +52,11 @@ PARAMS = {
     "text_floor": 0.10,  # similarity below this contributes nothing
     "text_scale": 0.35,  # similarity range mapped onto 0..text_max
     "text_max": 0.9,
+    # Semantic signal (optional; needs embeddings): cosine between the section's embedding and the gate's. Same FAMILY as text_sim (both are "the words look alike"),
+    # so it can strengthen a link but never makes one confident on its own. sem_max = 0 switches it off.
+    "sem_floor": 0.60,
+    "sem_scale": 0.20,
+    "sem_max": 0.0,
 }
 
 _STOP = set(
@@ -58,7 +65,7 @@ _STOP = set(
     "has have had been these those their there where while about over only other some each per via".split()
 )
 # Independent kinds of evidence. "Confident" needs at least two different families.
-FAMILY = {"name_mention": "name", "shared_links": "links", "page_links": "links", "text_sim": "text", "kep": "kep"}
+FAMILY = {"name_mention": "name", "shared_links": "links", "page_links": "links", "text_sim": "text", "semantic": "text", "kep": "kep"}
 _WORD = re.compile(r"[a-z][a-z0-9]+")
 _CAMEL = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
 _SHORTCODE = re.compile(r"\{\{<.*?>\}\}")
@@ -88,9 +95,10 @@ def norm_link(link: str) -> str:
 
 
 class Linker:
-    def __init__(self, gates: list[dict], params: dict | None = None, keps: list[dict] | None = None):
+    def __init__(self, gates: list[dict], params: dict | None = None, keps: list[dict] | None = None, gate_embeddings: dict[str, list[float]] | None = None):
         self.p = {**PARAMS, **(params or {})}
         self.gates = gates
+        self.gate_emb = {n: np.asarray(v, dtype=np.float32) for n, v in (gate_embeddings or {}).items()}  # gate name -> unit vector (BAAI/bge-base-en-v1.5), only used when sem_max > 0
         # (stage, version) of each gate's FIRST stage: a label cannot describe a feature before its gate existed (see link_detailed)
         self.first_stage = {g["name"]: (g["stages"][0]["stage"], g["stages"][0]["from_version"]) for g in gates if g.get("stages")}
         self.gate_tokens = {g["name"]: camel_words(g["name"]) * 2 + tokens(g["description"]) for g in gates}
@@ -142,11 +150,11 @@ class Linker:
         return best
 
     def link(self, section_text: str, section_links: list[str], heading: str | None = None,
-             page_links: list[str] | None = None, since: str | None = None) -> list[Candidate]:
-        return self.link_detailed(section_text, section_links, heading, page_links, since)[0]
+             page_links: list[str] | None = None, since: str | None = None, section_embedding: list[float] | None = None) -> list[Candidate]:
+        return self.link_detailed(section_text, section_links, heading, page_links, since, section_embedding)[0]
 
     def link_detailed(self, section_text: str, section_links: list[str], heading: str | None = None,
-                      page_links: list[str] | None = None, since: str | None = None) -> tuple[list[Candidate], list[dict]]:
+                      page_links: list[str] | None = None, since: str | None = None, section_embedding: list[float] | None = None) -> tuple[list[Candidate], list[dict]]:
         """Score every gate for one label. Returns (candidates, eliminated).
 
         Elimination rule (a deliberate design choice, README "Linking"): if the label says "since vX" and a candidate gate's FIRST stage starts
@@ -156,6 +164,7 @@ class Linker:
         introduced at 1.37 for a feature the docs date to 1.35), so the rule can remove a right gate; measured in eval/results/drift_report.md.
         """
         since_key = version_key(since.lstrip("v")) if since else None
+        sec_vec = np.asarray(section_embedding, dtype=np.float32) if section_embedding is not None and self.p["sem_max"] > 0 and self.gate_emb else None
         eliminated: list[dict] = []
         text_vec = self._vec(tokens(section_text) + tokens(heading or "") * (self.p["heading_weight"] - 1))
         links = {norm_link(link) for link in section_links}
@@ -192,6 +201,11 @@ class Linker:
             sim = sum(w * gv.get(t, 0.0) for t, w in text_vec.items())
             if sim > self.p["text_floor"]:
                 signals["text_sim"] = min(self.p["text_max"], (sim - self.p["text_floor"]) / self.p["text_scale"] * self.p["text_max"])
+            if sec_vec is not None and name in self.gate_emb:
+                cos = float(np.dot(sec_vec, self.gate_emb[name]))
+                s = min(1.0, max(0.0, (cos - self.p["sem_floor"]) / self.p["sem_scale"])) * self.p["sem_max"]
+                if s > 0:
+                    signals["semantic"] = s
             if signals:
                 conf = 1 - math.prod(1 - s for s in signals.values())
                 if len({FAMILY[k] for k in signals}) < 2:
@@ -224,23 +238,38 @@ def read_jsonl(path: Path) -> list[dict]:
     return [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
 
 
-def link_all(labels: list[dict], gates: list[dict], params: dict | None = None, keps: list[dict] | None = None) -> list[dict]:
-    linker = Linker(gates, params, keps)
+def link_all(labels: list[dict], gates: list[dict], params: dict | None = None, keps: list[dict] | None = None,
+             gate_embeddings: dict[str, list[float]] | None = None, section_embeddings: dict[str, list[float]] | None = None) -> list[dict]:
+    linker = Linker(gates, params, keps, gate_embeddings)
     rows = []
     for lab in labels:
         if lab["kind"] != "hardcoded":
             continue
-        cands, eliminated = linker.link_detailed(lab["section_text"], lab["doc_links"], lab["heading"], lab["page_doc_links"], lab["for_k8s_version"])
+        cands, eliminated = linker.link_detailed(lab["section_text"], lab["doc_links"], lab["heading"], lab["page_doc_links"], lab["for_k8s_version"],
+                                                 (section_embeddings or {}).get(lab["id"]))
         rows.append({"claim_id": lab["id"], "candidates": [asdict(c) for c in cands], "eliminated": eliminated})
     return rows
 
 
 def main() -> None:
+    import argparse
+
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    ap = argparse.ArgumentParser(description="Link hard-coded docs labels to feature gates")
+    ap.add_argument("--semantic", action="store_true", help="add the embedding signal (tuned on half A). OFF by default: it can create new findings, which the owner must confirm first")
+    ap.add_argument("--out", default=str(LINKS_SNAPSHOT))
+    args = ap.parse_args()
     gates, labels = read_jsonl(GATES_SNAPSHOT), read_jsonl(LABELS_SNAPSHOT)
     keps = read_jsonl(KEPS_SNAPSHOT) if KEPS_SNAPSHOT.exists() else None
-    rows = link_all(labels, gates, keps=keps)
-    LINKS_SNAPSHOT.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    extra: dict = {}
+    if args.semantic:
+        from lineage.link.semantic import TUNED, gate_embeddings, section_embeddings
+        from lineage.search.chunks import load_chunks
+
+        chunks = load_chunks()
+        extra = {"params": TUNED, "gate_embeddings": gate_embeddings(chunks), "section_embeddings": section_embeddings(chunks, labels)}
+    rows = link_all(labels, gates, keps=keps, **extra)
+    Path(args.out).write_text("".join(json.dumps(r) + "\n" for r in rows))
     confident = sum(1 for r in rows if r["candidates"] and r["candidates"][0]["confidence"] >= CONFIDENT)
     possible = sum(1 for r in rows if r["candidates"] and r["candidates"][0]["confidence"] < CONFIDENT)
     log.info("hard-coded claims: %d | confident (>=%.1f): %d | possible only: %d | unresolved: %d",

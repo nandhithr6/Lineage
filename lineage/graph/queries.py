@@ -95,10 +95,12 @@ def gate_stage_change(g: Graph, gate: str, from_num: int, to_num: int) -> dict:
 HALF_LIFE_DAYS = 180.0  # a review this old counts half as much as one today
 APPROVAL_WEIGHT = 1.5
 
+# FalkorDB checks only that AT LEAST ONE matching relationship exists when a relationship in a pattern is not referenced elsewhere (known-limitations page), which
+# silently drops parallel edges. Every relationship below is therefore bound and referenced (the path / ID(t) in WHERE), even where today's data has no parallel edges.
 Q_ACTIVITY = """
-MATCH (c:CodePath)-[:CHILD_OF*0..]->(anc:CodePath {id: $id})
-MATCH (pr:PR)-[:TOUCHES]->(c)
-WHERE NOT pr.cherry_pick AND NOT pr.cross_cutting
+MATCH chain = (c:CodePath)-[:CHILD_OF*0..]->(anc:CodePath {id: $id})
+MATCH (pr:PR)-[t:TOUCHES]->(c)
+WHERE NOT pr.cherry_pick AND NOT pr.cross_cutting AND length(chain) >= 0 AND ID(t) >= 0
 MATCH (p:Person)-[r:REVIEWED|APPROVED|AUTHORED]->(pr)
 RETURN p.handle, type(r), r.at, pr.number, pr.url, pr.title
 """
@@ -159,12 +161,97 @@ def official_vs_actual(g: Graph, repo: str, path: str, months: int = 12, today: 
             "unlisted_active": sorted(h for h in active if h not in listed_any), "listed_approvers": len(listed), "active_people": len(active)}
 
 
-def orphaned_components(g: Graph, months: int = 12, today: datetime | None = None, repo: str = "kubernetes") -> list[dict]:
-    """Folders with listed approvers where NONE of them was active in the last `months` (as reviewer, approver or author on a PR touching it)."""
+def scan_ownership(g: Graph, months: int = 12, today: datetime | None = None, repo: str = "kubernetes") -> list[tuple[str, dict]]:
+    """official_vs_actual for every folder that lists approvers. About 10 s on the real graph, so callers that need several views (orphaned, dormant, gaps) compute it once and pass it in."""
     rows = g.ro_query("MATCH (c:CodePath {repo: $r}) WHERE c.has_owners AND c.path <> '' RETURN c.path ORDER BY c.path", {"r": repo}).result_set
     out = []
     for (path,) in rows:
         v = official_vs_actual(g, repo, path, months, today)
-        if v["listed_approvers"] and not v["active_approvers"]:
-            out.append({"path": path, "listed_approvers": v["listed_approvers"], "active_people": v["active_people"], "months": months, "unlisted_active": v["unlisted_active"][:5]})
+        if v["listed_approvers"]:
+            out.append((path, v))
     return out
+
+
+def _no_active_approver(g: Graph, months: int, today: datetime | None, repo: str, scan: list | None = None) -> list[tuple[str, dict]]:
+    return [(p, v) for p, v in (scan if scan is not None else scan_ownership(g, months, today, repo)) if not v["active_approvers"]]
+
+
+def orphaned_components(g: Graph, months: int = 12, today: datetime | None = None, repo: str = "kubernetes", scan: list | None = None) -> list[dict]:
+    """ORPHANED: folders with listed approvers, none of whom was active in the last `months`, while OTHER people did work there (a PR touched the folder).
+    That is the risk case: the code is alive but nobody listed is looking after it. Folders with no activity at all are `dormant_components`, not a risk."""
+    return [{"path": p, "listed_approvers": v["listed_approvers"], "active_people": v["active_people"], "months": months, "unlisted_active": v["unlisted_active"][:5]}
+            for p, v in _no_active_approver(g, months, today, repo, scan) if v["active_people"] > 0]
+
+
+def dormant_components(g: Graph, months: int = 12, today: datetime | None = None, repo: str = "kubernetes", scan: list | None = None) -> list[dict]:
+    """DORMANT: folders with listed approvers where nobody did anything in the window. Often stable code, so this is information, not a risk."""
+    return [{"path": p, "listed_approvers": v["listed_approvers"], "months": months}
+            for p, v in _no_active_approver(g, months, today, repo, scan) if v["active_people"] == 0]
+
+
+# --- FalkorDB graph algorithm: PageRank over the review network ---------------------------------------------------------------
+# (author)-[:REVIEWED_BY]->(reviewer) edges are derived from PR reviews (loader). algo.pageRank takes ONE label and ONE relationship type as positional
+# arguments (FalkorDB docs) and ignores edge weights, so every author-reviewer pair is one edge. Rank flows from author to reviewer, so
+# being relied on by people who are themselves relied on counts most (a reviewer who is the last stop of a busy chain can outrank the busy hub that feeds it).
+# It measures position in the review network, NOT code ownership or skill.
+Q_PAGERANK = """
+CALL algo.pageRank('Person', 'REVIEWED_BY') YIELD node, score
+WITH node, score ORDER BY score DESC LIMIT $limit
+RETURN node.handle, score
+"""
+Q_NET_STATS = """
+MATCH (p:Person) WHERE p.handle IN $handles
+OPTIONAL MATCH (x:Person)-[rb:REVIEWED_BY]->(p)
+WITH p, count(DISTINCT x) AS authors, coalesce(sum(rb.count), 0) AS reviews
+OPTIONAL MATCH (p)-[a:APPROVER_OF]->(c:CodePath) WHERE a.valid_to IS NULL
+RETURN p.handle, authors, reviews, count(DISTINCT c)
+"""
+
+
+def review_network_top(g: Graph, limit: int = 15) -> list[dict]:
+    """Most central reviewers by PageRank, with how many distinct authors rely on them and whether OWNERS lists them as an approver today."""
+    ranked = g.ro_query(Q_PAGERANK, {"limit": limit}).result_set
+    if not ranked:
+        return []
+    stats = {h: (authors, reviews, approver_of) for h, authors, reviews, approver_of in g.ro_query(Q_NET_STATS, {"handles": [h for h, _ in ranked]}).result_set}
+    return [{"rank": i, "handle": h, "score": round(score, 5), "authors_served": stats.get(h, (0, 0, 0))[0], "reviews": stats.get(h, (0, 0, 0))[1],
+             "approver_of_folders": stats.get(h, (0, 0, 0))[2], "listed_approver": stats.get(h, (0, 0, 0))[2] > 0}
+            for i, (h, score) in enumerate(ranked, 1)]
+
+
+_RANKS: dict = {}
+
+
+def network_ranks(g: Graph, ttl: int = 300) -> dict[str, dict]:
+    """handle -> {rank, of, score, authors_served} for EVERY person with review-network edges (one PageRank run, cached for `ttl` seconds)."""
+    import time
+
+    hit = _RANKS.get(g.name)
+    if hit and time.time() - hit[0] < ttl:
+        return hit[1]
+    ranked = g.ro_query(Q_PAGERANK, {"limit": 100000}).result_set
+    authors = {h: n for h, n in g.ro_query("MATCH (a:Person)-[r:REVIEWED_BY]->(p:Person) WHERE ID(r) >= 0 RETURN p.handle, count(DISTINCT a)").result_set}
+    out = {h: {"rank": i, "of": len(ranked), "score": round(s, 5), "authors_served": authors.get(h, 0)} for i, (h, s) in enumerate(ranked, 1) if authors.get(h, 0) > 0}
+    _RANKS[g.name] = (time.time(), out)
+    return out
+
+
+# Test and tooling folders inherit one large shared approver list, which makes the quiet share look dramatic without meaning an owner is missing.
+GAP_SKIP = ("test/", "hack/", "vendor/", "third_party/")
+
+
+def ownership_gaps(g: Graph, months: int = 12, today: datetime | None = None, repo: str = "kubernetes", limit: int = 15, scan: list | None = None) -> list[dict]:
+    """Official versus actual ownership for every in-scope folder, most worrying first: many listed approvers who have gone quiet, or none active at all.
+
+    Only folders under sig-storage, sig-node and sig-apps are covered (the PR data we have); a folder with no recorded activity at all is flagged `no_activity_data`.
+    """
+    out = []
+    for path, v in (scan if scan is not None else scan_ownership(g, months, today, repo)):
+        if path.startswith(GAP_SKIP):
+            continue
+        quiet = len(v["inactive_approvers"])
+        out.append({"path": path, "listed_approvers": v["listed_approvers"], "active_approvers": len(v["active_approvers"]), "inactive_approvers": quiet,
+                    "inactive_share": round(quiet / v["listed_approvers"], 2), "active_people": v["active_people"], "other_active_people": len(v["unlisted_active"]),
+                    "no_activity_data": v["active_people"] == 0, "inactive_examples": v["inactive_approvers"][:5]})
+    out.sort(key=lambda r: (-(r["active_approvers"] == 0 and not r["no_activity_data"]), -r["inactive_share"], -r["inactive_approvers"], r["path"]))
+    return out[:limit]

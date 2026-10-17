@@ -108,7 +108,7 @@ def extract_labels(text: str, page_path: str, rel_to_docs: Path, sha: str) -> li
             n = per_section[key] = per_section.get(key, 0) + 1
 
             issues: list[str] = []
-            gate = args.get("feature_gate_name")
+            gate = args.get("feature_gate_name") or args.get("feature_gate")  # older docs used the shorter argument name (found by re-ingesting October 2025)
             state = args.get("state")
             version = args.get("for_k8s_version")
             if version:

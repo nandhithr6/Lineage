@@ -46,6 +46,8 @@ def render(b: dict) -> str:
             w("   evidence: " + ", ".join(f"{k}={v}" for k, v in link["signals"].items() if not isinstance(v, list)))
         for e in link.get("eliminated") or []:
             w(f"   ruled out: {e['reason']}")
+        if f.get("anchored_by") == "elimination":
+            w("   no manual edge: the automatic linker chose this gate; trusted as a finding because the since-version rule removed rivals and this gate is a clear winner (top >= 0.8, next < 0.5)")
         w(src(b, link["evidence_id"]).lstrip("\n"))
     else:
         w("   insufficient evidence: no ABOUT link recorded for this claim")

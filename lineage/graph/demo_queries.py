@@ -19,7 +19,7 @@ QUERIES = [
     ("1. The hero path: a docs label, its feature gate and the gate's stage in every release",
      "Resource Quotas page -> section -> the 'alpha since v1.8' claim -> the gate it is about -> one STAGE_IN edge per release (alpha 1.7, beta 1.10, stable 1.25).",
      f"MATCH (p:DocPage {{path:'{PAGE}'}})-[r1:HAS_SECTION]->(s:DocSection {{anchor:'quota-for-local-ephemeral-storage'}})-[r2:HAS_CLAIM]->(c:Claim)-[r3:ABOUT]->(g:FeatureGate)-[r4:STAGE_IN]->(rel:Release)\n"
-     "WHERE r3.method = 'manual'\n"
+     "WHERE g.name = 'LocalStorageCapacityIsolation' AND r3.link_confidence >= 0.8\n"
      "RETURN p, r1, s, r2, c, r3, g, r4, rel", 60),
     ("2. The finding, the decision behind it and the team that owns it",
      "The detector's Finding node, the claim and gate it points at, the design document (KEP) that introduced the gate, and its owning team.",

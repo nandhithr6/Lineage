@@ -65,6 +65,7 @@ class Evaluation:
     gate_removed: bool
     evidence: list[dict]  # stable keys {gate, release, stage}; never internal edge IDs
     message: str
+    anchored_by: str | None = None  # why the link was trusted: manual | gate_name | name_mention | elimination
 
     @property
     def key(self) -> str:
@@ -100,13 +101,28 @@ def evaluate_claim(claim_id: str, claimed_stage: str, claimed_since: str | None,
     return None
 
 
-def is_anchored(method: str | None, signals_json: str | None) -> bool:
+ELIM_TOP, ELIM_NEXT, ELIM_RIVAL = CONFIDENT, 0.5, 0.5  # anchoring by elimination: top >= first, next survivor < second, and an eliminated rival that would have scored >= third
+
+
+def anchor_reason(method: str | None, signals_json: str | None, eliminated_json: str | None = None, conf: float = 0.0, next_conf: float = 0.0) -> str | None:
+    """Why a link may support a finding, or None. A person verified it ("manual"), the gate is named in the section ("gate_name"/"name_mention"),
+    or the since-version rule removed a REAL rival (one that would have scored >= 0.5) and what is left is a clear winner ("elimination": top >= 0.8, next survivor < 0.5).
+    A similar-sounding gate alone is never an anchor."""
     if method in ("manual", "gate_name"):
-        return True
+        return method
     try:
-        return json.loads(signals_json or "{}").get("name_mention", 0.0) >= ANCHOR_NAME
-    except ValueError:
-        return False
+        if json.loads(signals_json or "{}").get("name_mention", 0.0) >= ANCHOR_NAME:
+            return "name_mention"
+        rivals = [e for e in json.loads(eliminated_json or "[]") if e.get("would_be_confidence", 0.0) >= ELIM_RIVAL]
+        if rivals and conf >= ELIM_TOP and next_conf < ELIM_NEXT:
+            return "elimination"
+    except (ValueError, AttributeError):
+        pass
+    return None
+
+
+def is_anchored(method: str | None, signals_json: str | None, eliminated_json: str | None = None, conf: float = 0.0, next_conf: float = 0.0) -> bool:
+    return anchor_reason(method, signals_json, eliminated_json, conf, next_conf) is not None
 
 
 def judge_claim(claim_id: str, state: str, since: str | None, ranked: list[tuple],
@@ -114,6 +130,8 @@ def judge_claim(claim_id: str, state: str, since: str | None, ranked: list[tuple
     """Judge a claim whose top link is confident. `ranked` = [(confidence, gate, removed, method, anchored)], best first."""
     _, gate, removed, _, anchored = ranked[0]
     ev = evaluate_claim(claim_id, state, since, gate, removed, history.get(gate, []))
+    if ev and anchored:
+        ev = replace(ev, anchored_by=anchored if isinstance(anchored, str) else None)
     if ev and ev.severity != "review":
         agreeing = [g2 for conf2, g2, rem2, _, _ in ranked[1:]
                     if conf2 >= RUNNER_UP and history.get(g2)
@@ -132,7 +150,7 @@ def judge_claim(claim_id: str, state: str, since: str | None, ranked: list[tuple
 Q_CLAIMS = """
 MATCH (c:Claim {kind: 'hardcoded'})
 OPTIONAL MATCH (c)-[a:ABOUT]->(g:FeatureGate)
-RETURN c.id, c.state, c.since, c.drift_eligible, g.name, g.removed, a.link_confidence, a.method, a.signals
+RETURN c.id, c.state, c.since, c.drift_eligible, g.name, g.removed, a.link_confidence, a.method, a.signals, a.eliminated
 """
 
 Q_HISTORY = """
@@ -153,10 +171,10 @@ def fetch(g: Graph) -> tuple[list[list], dict[str, list[HistoryRow]]]:
 def run_detector(g: Graph) -> tuple[list[Evaluation], dict[str, int]]:
     rows, history = fetch(g)
     by_claim: dict[str, dict] = {}
-    for cid, state, since, eligible, gate, removed, conf, method, signals in rows:
+    for cid, state, since, eligible, gate, removed, conf, method, signals, eliminated in rows:
         entry = by_claim.setdefault(cid, {"state": state, "since": since, "eligible": bool(eligible), "cands": []})
         if gate:
-            entry["cands"].append((conf, gate, bool(removed), method, is_anchored(method, signals)))
+            entry["cands"].append([conf, gate, bool(removed), method, signals, eliminated])
     stats: Counter[str] = Counter()
     results: list[Evaluation] = []
     for cid, c in sorted(by_claim.items()):
@@ -167,7 +185,9 @@ def run_detector(g: Graph) -> tuple[list[Evaluation], dict[str, int]]:
         if not c["cands"]:
             stats["unresolved"] += 1
             continue
-        ranked = sorted(c["cands"], reverse=True)
+        cands = sorted(c["cands"], key=lambda x: (x[0], x[1]), reverse=True)
+        ranked = [(conf, gate, removed, method, anchor_reason(method, signals, elim, conf, cands[i + 1][0] if i + 1 < len(cands) else 0.0))
+                  for i, (conf, gate, removed, method, signals, elim) in enumerate(cands)]
         if ranked[0][0] < CONFIDENT:
             stats["possible only"] += 1
             continue
@@ -186,12 +206,16 @@ MATCH (c:Claim {id: r.claim_id}), (g:FeatureGate {name: r.gate}), (x:Release {ve
 MERGE (f:Finding {key: r.key})
 SET f.kind = r.kind, f.severity = r.severity, f.claimed_stage = r.claimed_stage, f.claimed_since = r.claimed_since,
     f.actual_stages = r.actual_stages, f.entered_version = r.entered_version, f.gate_removed = r.gate_removed,
-    f.evidence = r.evidence, f.message = r.message, f.active = true,
+    f.evidence = r.evidence, f.message = r.message, f.anchored_by = r.anchored_by, f.active = true,
     f.detected_at = coalesce(f.detected_at, $now)
-MERGE (f)-[:FOR_CLAIM]->(c)
-MERGE (f)-[:FOR_GATE]->(g)
-MERGE (f)-[:AS_OF]->(x)
+MERGE (f)-[e1:FOR_CLAIM]->(c)
+MERGE (f)-[e2:FOR_GATE]->(g)
+MERGE (f)-[e3:AS_OF]->(x)
+SET e1.recorded_at = coalesce(e1.recorded_at, $now), e1.extracted_by = 'detector', e1.detector_version = $ver,
+    e2.recorded_at = coalesce(e2.recorded_at, $now), e2.extracted_by = 'detector', e2.detector_version = $ver,
+    e3.recorded_at = coalesce(e3.recorded_at, $now), e3.extracted_by = 'detector', e3.detector_version = $ver
 """
+DETECTOR_VERSION = "2026-10-16.1"  # bump when a detector rule changes; stored on the derived FOR_CLAIM / FOR_GATE / AS_OF edges
 
 
 def write_findings(g: Graph, results: list[Evaluation]) -> None:
@@ -200,7 +224,7 @@ def write_findings(g: Graph, results: list[Evaluation]) -> None:
     rows = [{**asdict(ev), "key": ev.key, "evidence": json.dumps(ev.evidence)} for ev in results]
     g.query("MATCH (f:Finding) SET f.active = false")
     if rows:
-        g.query(Q_FINDING, {"rows": rows, "now": now})
+        g.query(Q_FINDING, {"rows": rows, "now": now, "ver": DETECTOR_VERSION})
 
 
 def main() -> None:
