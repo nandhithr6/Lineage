@@ -2,7 +2,7 @@
 
 Generated from the code by `python -m lineage.graph.export_queries`; do not edit by hand.
 
-**Graph algorithms:** the product currently uses traversals only (pattern matching, variable-length paths, aggregation). It does not yet call FalkorDB's `algo.*` procedures or the vector index; both are on the roadmap, not in use.
+**Graph algorithms:** traversals (pattern matching, variable-length paths, aggregation) plus FalkorDB's `algo.pageRank` over the review network. The HNSW vector index over `Chunk.embedding` (768 dims, cosine) serves free-text search and the vector-RAG baseline.
 
 ## Ownership: who owns this path? (walk UP the folder tree)
 
@@ -35,7 +35,7 @@ Each claim can have 0..3 `ABOUT` candidates, each with its own confidence and me
 ```cypher
 MATCH (c:Claim {kind: 'hardcoded'})
 OPTIONAL MATCH (c)-[a:ABOUT]->(g:FeatureGate)
-RETURN c.id, c.state, c.since, c.drift_eligible, g.name, g.removed, a.link_confidence, a.method, a.signals
+RETURN c.id, c.state, c.since, c.drift_eligible, g.name, g.removed, a.link_confidence, a.method, a.signals, a.eliminated
 ```
 
 ## Drift detector input: a gate's stage in every release
@@ -57,11 +57,45 @@ MATCH (c:Claim {id: r.claim_id}), (g:FeatureGate {name: r.gate}), (x:Release {ve
 MERGE (f:Finding {key: r.key})
 SET f.kind = r.kind, f.severity = r.severity, f.claimed_stage = r.claimed_stage, f.claimed_since = r.claimed_since,
     f.actual_stages = r.actual_stages, f.entered_version = r.entered_version, f.gate_removed = r.gate_removed,
-    f.evidence = r.evidence, f.message = r.message, f.active = true,
+    f.evidence = r.evidence, f.message = r.message, f.anchored_by = r.anchored_by, f.active = true,
     f.detected_at = coalesce(f.detected_at, $now)
-MERGE (f)-[:FOR_CLAIM]->(c)
-MERGE (f)-[:FOR_GATE]->(g)
-MERGE (f)-[:AS_OF]->(x)
+MERGE (f)-[e1:FOR_CLAIM]->(c)
+MERGE (f)-[e2:FOR_GATE]->(g)
+MERGE (f)-[e3:AS_OF]->(x)
+SET e1.recorded_at = coalesce(e1.recorded_at, $now), e1.extracted_by = 'detector', e1.detector_version = $ver,
+    e2.recorded_at = coalesce(e2.recorded_at, $now), e2.extracted_by = 'detector', e2.detector_version = $ver,
+    e3.recorded_at = coalesce(e3.recorded_at, $now), e3.extracted_by = 'detector', e3.detector_version = $ver
+```
+
+## Graph algorithm: PageRank over the review network
+
+`algo.pageRank(label, relationship-type)` runs inside FalkorDB on the derived `REVIEWED_BY` edges (author to reviewer). Ranks position in the review network, not skill.
+
+```cypher
+CALL algo.pageRank('Person', 'REVIEWED_BY') YIELD node, score
+WITH node, score ORDER BY score DESC LIMIT $limit
+RETURN node.handle, score
+```
+
+## Vector index: create it and load a chunk
+
+HNSW cosine index over 768-dimension embeddings (BAAI/bge-base-en-v1.5, computed locally); `vecf32` stores the vector on the node. `CHUNK_OF` edges link a chunk to the node it is about.
+
+```cypher
+UNWIND $rows AS r
+MERGE (c:Chunk {id: r.id})
+SET c.text = r.text, c.kind = r.kind, c.source_url = r.source_url, c.line_start = r.line_start, c.line_end = r.line_end, c.parent = r.parent, c.model = r.model,
+    c.embedding = vecf32(r.vec), c.recorded_at = coalesce(c.recorded_at, $now)
+```
+
+## Vector search: the nearest chunks to a question
+
+FalkorDB's score is a cosine distance (0 = identical); the product reports 1 - distance. Vector queries cannot be combined with property filters, so hits are expanded along edges afterwards (search_text).
+
+```cypher
+CALL db.idx.vector.queryNodes('Chunk', 'embedding', $k, vecf32($v)) YIELD node, score
+RETURN node.id, node.text, node.source_url, node.kind, node.line_start, node.line_end, node.parent, score
+ORDER BY score
 ```
 
 ## Trace: gate stage history
@@ -80,11 +114,11 @@ RETURN k.id, k.title, k.status, k.stage, k.latest_milestone, k.source_url, i.met
 
 ## Trace: how a claim was linked to its gate
 
-`method` is `gate_name`, `linker` or `manual`; manual links keep the linker's own score.
+`method` is `gate_name`, `linker` or `manual`; the since-version rule's eliminated candidates are stored on the edge.
 
 ```cypher
 MATCH (c:Claim {id: $c})-[a:ABOUT]->(g:FeatureGate {name: $g})
-RETURN a.method, a.link_confidence, a.linker_confidence, a.signals, a.verified_by, a.verified_on, a.reason, a.source_url
+RETURN a.method, a.link_confidence, a.linker_confidence, a.signals, a.verified_by, a.verified_on, a.reason, a.source_url, a.eliminated
 ```
 
 ## Loader: a stage edge (MERGE makes the load idempotent)

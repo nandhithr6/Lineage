@@ -207,8 +207,11 @@ stage history, expected outcome (positive/negative/ambiguous), link confidence, 
 Below are candidates and principles, not commitments.
 
 ### Principles
-- Every edge carries: `valid_from`, `valid_to` (null = still true), `recorded_at` (when Lineage learned it),
-  `source_url` (GitHub **permalink pinned to a commit**), `extracted_by` (`structured` | `llm` | `inferred`), `confidence`.
+- Every edge carries provenance: `recorded_at` (when Lineage learned it), `source_url` (GitHub **permalink pinned to a commit**),
+  `extracted_by` (`structured` | `llm` | `inferred` | `manual`), `confidence`.
+- `valid_from` / `valid_to` (null = still true) apply to facts that CHANGE over time (ownership; stages are one edge per release). Static facts
+  (authorship, KEP→SIG, PR→files) carry provenance only; no fake validity intervals. Edges derived by the detector (`FOR_CLAIM`, `FOR_GATE`,
+  `AS_OF` on Finding) are structural: `recorded_at`, `extracted_by: detector`, `detector_version`, and no `source_url` (their evidence is on the linked claim and gate).
 - Never delete facts. A change closes `valid_to` and creates a new edge (bitemporal: valid time + record time).
 - Provenance comes from query results, never from the LLM.
 - Add node/edge types only when a real query needs them.
