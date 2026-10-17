@@ -31,7 +31,9 @@ as the health check, and add the model keys as **secrets / environment variables
 **Public-site safety:** a public chat endpoint would let strangers spend your free-tier quota, so `/api/ask` allows `ASK_PER_IP_PER_HOUR` (default 12) per visitor and `ASK_PER_DAY` (default 150) in total, then answers 429 with a clear message;
 findings, Explore and the graph keep working. The free Gemini tier is small (about 20 requests a day on the flagship, more on the flash-lite model), so expect the chat to hit its limit on a busy day and fall back to Groq.
 
-## 0b. Free web host without a card: Render with the slim image **[image tested; Render steps untested]**
+## 0b. Free web host without a card: Render with the slim image **[deployed by the owner on 2026-10-17; smoke test below passed on the live site]**
+
+Live: https://lineage-faov.onrender.com/ . Checked from outside on 2026-10-17: `/healthz` 200, `/api/health` (`embeddings: false`), `/api/findings` (6 items), `/api/snapshots`, `/api/search` ("unavailable" as designed), a saved Ask answer, and the MCP endpoint answers an initialize request.
 
 `Dockerfile.slim` is the same single container WITHOUT the local embedding model, for a host with little memory. **Measured here** (Docker, 512 MB memory limit, no OOM kill): image **749 MB**; RAM **214 MiB peak while starting, about 150 MiB idle and after
 requests**; healthy after **13 s on 1 CPU and 44 s on 0.25 CPU**. In this build `/api/search` answers "unavailable" and `search_text` is not offered to the model (both say "available in the local setup"), the contrast toggle uses keyword (TF-IDF) retrieval and says so,

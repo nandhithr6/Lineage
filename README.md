@@ -61,7 +61,8 @@ cd web && npm test                           # 7 unit tests for the UI's pure lo
 
 ### Deploying
 
-There is **no public deployment**: the complete local setup above is the baseline. [docs/deploy.md](docs/deploy.md) has the exact steps for a free no-card host (Render, with `Dockerfile.slim` and `render.yaml`; not verified end to end) and for a server you control (`docker-compose.stack.yml`).
+**Live demo: <https://lineage-faov.onrender.com/>** (Render free web service, the slim image: no embedding model, so text search says "available in the local setup" and the contrast toggle uses keyword retrieval). A free instance sleeps after 15 minutes without traffic, so the first request can take about a minute; the graph is rebuilt from the committed snapshot at every start, so saved memory notes last only until a restart.
+The complete local setup above is the full-featured baseline. [docs/deploy.md](docs/deploy.md) has the Render steps and the setup for a server you control (`docker-compose.stack.yml`).
 
 ## Architecture
 
