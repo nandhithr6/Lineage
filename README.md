@@ -1,7 +1,7 @@
 <p align="center"><img src="docs/img/banner.png" alt="Lineage: a company brain that knows when its knowledge is out of date, and proves every answer"></p>
 
 <p align="center">
-<b><a href="https://lineage-faov.onrender.com/">▶ Live demo</a></b> &nbsp;·&nbsp; <b><a href="https://drive.google.com/file/d/1fn5dFY0kjds6lYaK5ZafvDz_pvwJAt41/view?usp=sharing">🎬 Demo video (2:39)</a></b> &nbsp;·&nbsp; <b><a href="docs/BLOG_POST.md">Blog post</a></b> &nbsp;·&nbsp; <b><a href="docs/EXPLAIN_IT.md">Explain it in 10 minutes</a></b>
+<b><a href="https://lineage-faov.onrender.com/">▶ Live demo</a></b> &nbsp;·&nbsp; <b><a href="https://drive.google.com/file/d/1fn5dFY0kjds6lYaK5ZafvDz_pvwJAt41/view?usp=sharing">🎬 Demo video (2:39)</a></b> &nbsp;·&nbsp; <b><a href="https://medium.com/@ys.nandhitha/our-docs-said-alpha-the-graph-said-stable-since-1-25-76ad8a7bbb2d">Blog post</a></b> &nbsp;·&nbsp; <b><a href="docs/EXPLAIN_IT.md">Explain it in 10 minutes</a></b>
 </p>
 
 We treat the Kubernetes open-source project as a ~3,000-person company: an org chart, ownership maps, design decisions, release history and documentation that quietly drifts.
