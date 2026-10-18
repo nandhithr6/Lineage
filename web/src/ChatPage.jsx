@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { api } from './api.js'
+import PageIntro from './PageIntro.jsx'
 import { markdownBlocks, splitCitations } from './graph.js'
 
 // Saved answers exist for these exact questions (they work without an LLM key or quota); anything else goes to the model.
@@ -119,8 +120,9 @@ export default function ChatPage({ llmConfigured }) {
   return (
     <div className="split chat">
       <section className="pane">
+        <PageIntro title="Ask with proof" what="Ask a question in plain English about Kubernetes docs, owners or design decisions. Lineage answers only from facts it finds by walking the graph, and every claim is followed by an evidence chip like e3 that opens the exact source." read="The badge on an answer says how it was reached: 'Answered with a path' (found by following the graph), 'Unknown entity' (the graph does not know a name, so no lookup ran) or 'Not in the graph'. The trace table lists every query behind the answer. If the wording names something the evidence does not contain, the draft is withheld." tryIt="Click an example below. Tick 'Answer with plain retrieval too' to compare the same question answered by plain text search, without the graph." />
         {llmConfigured === false && <div className="panel note" role="status">No language model is configured here, so only the example questions below (which have saved answers with their evidence) and the rest of the app work. For new questions add <code>GEMINI_API_KEY</code> (or <code>GROQ_API_KEY</code>) to <code>.env</code> and restart the API.</div>}
-        {msgs.length === 0 && <div className="panel muted"><h2>Ask with proof</h2><p>Answers come only from graph queries. Every claim is followed by an evidence chip like <span className="cite">e3</span>; click it to see the source.</p>
+        {msgs.length === 0 && <div className="panel muted"><p>Example questions (saved answers, no API key needed):</p>
           <div className="samples">{SAMPLES.map((s) => <button key={s} className="chip" onClick={() => send(s)}>{s}</button>)}</div></div>}
         <ol className="messages" aria-live="polite">{msgs.map((m, i) => (
           <li key={i} className={`msg ${m.role} ${m.status || ''}`}>
@@ -144,6 +146,8 @@ export default function ChatPage({ llmConfigured }) {
           </li>))}
           {busy && <li className="msg assistant muted">Looking things up…</li>}
         </ol>
+        {msgs.length > 0 && <details className="try-another"><summary>Try another example question <small className="muted">(saved answers, no API key needed)</small></summary>
+          <div className="samples">{SAMPLES.map((s) => <button key={s} className="chip" disabled={busy} onClick={() => send(s)}>{s}</button>)}</div></details>}
         <form className="ask" onSubmit={(e) => { e.preventDefault(); send() }}>
           <label htmlFor="q" className="sr">Your question</label>
           <input id="q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask about stale docs, owners or design decisions…" maxLength={1000} />

@@ -32,6 +32,7 @@ export const api = {
   saveNote: (answerId, sessionId) => post('/notes', { answer_id: answerId, session_id: sessionId }),
   forgetNote: (noteId, sessionId) => request(`/notes/${encodeURIComponent(noteId)}?session_id=${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),
   about: () => request('/about-data'),
+  schema: () => request('/schema'),
   owners: (repo, path, asOf) => request(`/owners/${repo}/${path.split('/').map(encodeURIComponent).join('/')}?as_of=${encodeURIComponent(asOf || 'latest')}`),
   experts: (path, months = 12) => request(`/experts/kubernetes/${path.split('/').map(encodeURIComponent).join('/')}?months=${months}`),
   changes: (entity, from, to, repo = 'kubernetes') => request('/changes?' + new URLSearchParams({ entity, from, to, repo })),

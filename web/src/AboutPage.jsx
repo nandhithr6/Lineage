@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
+import PageIntro from './PageIntro.jsx'
 
 export default function AboutPage() {
   const [a, setA] = useState(null)
@@ -10,7 +11,7 @@ export default function AboutPage() {
   const d = a.detector
   return (
     <div className="about">
-      <h2>About the data</h2>
+      <PageIntro title="About the data" what="Where every fact in Lineage comes from, how fresh it is, and what the checker can and cannot do. Nothing here is private: it is all public Kubernetes project data." read="Each source repository is listed with the exact commit that was read, so any fact can be traced back to a file at that commit. The counts show how much the detector looked at and how much it could not judge." tryIt="Read 'Limits you should know about' at the bottom: it says plainly what Lineage does not know." />
       <p>Everything here is public Kubernetes project data, read-only. Snapshot date <strong>{a.snapshot_date}</strong>{a.age_days != null && <> ({a.age_days} day{a.age_days === 1 ? '' : 's'} old{a.age_days > 30 ? ': the upstream docs have probably moved on, see What changed' : ''})</>}. Each fact in the graph carries a commit-pinned link to its source.</p>
       <h3>Sources</h3>
       <table><thead><tr><th>Repository</th><th>Commit</th><th>License</th></tr></thead><tbody>

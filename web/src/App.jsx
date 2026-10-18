@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
+import HomePage from './HomePage.jsx'
 import FindingsPage from './FindingsPage.jsx'
 import ChatPage from './ChatPage.jsx'
 import AboutPage from './AboutPage.jsx'
@@ -9,7 +10,7 @@ import ChangesPage from './ChangesPage.jsx'
 
 const parse = () => {
   const [pathPart, query = ''] = window.location.hash.replace(/^#/, '').split('?')
-  const [, page = 'findings', id] = pathPart.split('/')
+  const [, page = 'home', id] = pathPart.split('/')
   return { page, id: id ? decodeURIComponent(id) : null, params: new URLSearchParams(query) }
 }
 
@@ -35,7 +36,7 @@ export default function App() {
     <div className="app">
       <header className="top">
         <div className="brand"><span className="logo" aria-hidden="true">L</span><div><strong>Lineage</strong><small>knows when its knowledge is out of date</small></div></div>
-        <nav aria-label="Main">{tab('findings', 'Findings')}{tab('explore', 'Explore')}{tab('changes', 'What changed')}{tab('insights', 'Insights')}{tab('ask', 'Ask')}{tab('about', 'About the data')}</nav>
+        <nav aria-label="Main">{tab('home', 'Home')}{tab('findings', 'Findings')}{tab('explore', 'Explore')}{tab('changes', 'What changed')}{tab('insights', 'Insights')}{tab('ask', 'Ask')}{tab('about', 'About the data')}</nav>
         <div className={`status ${health?.status === 'ok' ? 'ok' : 'bad'}`} title={health?.detail || ''}>
           {health ? (health.status === 'ok' ? 'API connected' : 'API unavailable') : 'connecting…'}
         </div>
@@ -47,7 +48,8 @@ export default function App() {
           : route.page === 'changes' ? <ChangesPage />
           : route.page === 'insights' ? <InsightsPage />
           : route.page === 'about' ? <AboutPage />
-          : <FindingsPage selectedId={route.id} />}
+          : route.page === 'findings' ? <FindingsPage selectedId={route.id} />
+          : <HomePage />}
       </main>
       <footer>Built on public Kubernetes project data. Not an official Kubernetes or CNCF tool. Lineage only drafts; it never posts to Kubernetes.</footer>
     </div>

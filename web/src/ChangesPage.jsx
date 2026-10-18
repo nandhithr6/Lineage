@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
+import PageIntro from './PageIntro.jsx'
 
 const short = (sha) => (sha || '').slice(0, 8)
 
@@ -21,9 +22,8 @@ export default function ChangesPage() {
   useEffect(() => { setD(null); setErr(null); api.changesSince(since).then(setD).catch((e) => setErr(e.message)) }, [since])
   const s = d?.summary
   return (
-    <section>
-      <h2>What changed</h2>
-      <p>Lineage keeps its knowledge current by re-reading the Kubernetes sources and comparing snapshots. Pick an earlier snapshot to see which stale labels got fixed, which new ones appeared, which features changed stage and which ownership roles moved.</p>
+    <section className="page-card">
+      <PageIntro title="What changed" what="A company brain must notice when the world moves. Lineage keeps earlier snapshots of the Kubernetes sources and compares them with the current one: which stale labels were fixed, which new ones appeared, which features changed stage and which owners changed." read="'Still open' means the label was already wrong at the earlier snapshot and nobody has fixed it. 'Moved' means the same label now sits on a different page, which is not a fix." tryIt="Compare with the oldest snapshot to see how long the Resource Quotas label has been out of date." />
       {snaps && (
         <p>Current snapshot <strong>{snaps.current.snapshot_date}</strong> ({snaps.current.age_days} days old).{' '}
           <label>Compare with{' '}

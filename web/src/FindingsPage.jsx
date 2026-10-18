@@ -156,6 +156,8 @@ export default function FindingsPage({ selectedId }) {
   const [list, setList] = useState(null)
   const [err, setErr] = useState(null)
   const [severity, setSeverity] = useState('')
+  const [det, setDet] = useState(null)
+  useEffect(() => { api.about().then((a) => setDet(a.detector)).catch(() => setDet(null)) }, [])
   useEffect(() => { setList(null); api.findings({ severity }).then(setList).catch((e) => setErr(e.message)) }, [severity])
   return (
     <div className="split">
@@ -176,6 +178,17 @@ export default function FindingsPage({ selectedId }) {
       <section className="pane">{selectedId ? <Detail id={selectedId} /> : <div className="panel muted intro">
         <h2>Which docs are out of date?</h2>
         <p>Lineage compares the maturity badges on Kubernetes docs pages (“alpha since v1.8”) with the verified history of the feature each one is about, and proves every claim with a link to its source.</p>
+        {list && <ul className="stats" aria-label="What Lineage checked">
+          <li><strong>{list.counts.stale_stage ?? 0}</strong><span>docs claims that are out of date</span></li>
+          <li><strong>{list.counts.possible_drift ?? 0}</strong><span>to review by a person</span></li>
+          {det && <li><strong>{det['claims checked']}</strong><span>badges checked</span></li>}
+          {det && <li><strong>{det.confident}</strong><span>linked to a feature with confidence</span></li>}</ul>}
+        <details className="glossary"><summary>New to Kubernetes? Four words</summary>
+          <dl><dt>SIG</dt><dd>a Special Interest Group: the team that owns an area (for example sig-storage).</dd>
+            <dt>KEP</dt><dd>a Kubernetes Enhancement Proposal: the design-decision document behind a feature.</dd>
+            <dt>Feature gate</dt><dd>an on/off switch for a feature, with a maturity stage: alpha, beta, then stable, and finally removed.</dd>
+            <dt>OWNERS</dt><dd>a file that lists who may review and approve changes in a folder.</dd></dl></details>
+        <p><span className="badge sev-finding">Stale stage</span> the link between the badge and its feature is confident, and the stage is proven wrong. <span className="badge sev-review">Possible drift</span> the link is not confident enough, so a person should check before anyone changes the docs.</p>
         <p>Pick an item on the left to see the trace: the claim, the feature gate it is linked to, the gate’s history, the design decision, the team, suggested reviewers and a drafted fix.</p></div>}</section>
     </div>
   )

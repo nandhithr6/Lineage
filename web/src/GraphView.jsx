@@ -10,7 +10,7 @@ export default function GraphView({ graph, onExpand, hint = "Bold blue = this fi
   expand.current = onExpand
 
   useEffect(() => {
-    const dark = window.matchMedia?.('(prefers-color-scheme: dark)').matches
+    const dark = false  // the app is light-themed
     cy.current = cytoscape({
       container: el.current,
       layout: { name: 'preset' },

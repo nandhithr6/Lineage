@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
 import GraphView from './GraphView.jsx'
+import SchemaMap from './SchemaMap.jsx'
+import PageIntro from './PageIntro.jsx'
 import { distinctPeople, entityGraph, mergeEntity } from './graph.js'
 
 const PATHS = [
@@ -128,11 +130,11 @@ function EntityPanel({ params }) {
         {graph.nodes.length - 1} neighbour{graph.nodes.length === 2 ? '' : 's'} of <code>{shown.key}</code> shown{graph.truncated ? ': there are more. ' : ' (all of them). '}
         {graph.truncated && limit < MAX_LIMIT && <button className="btn small" disabled={busy} onClick={() => load(shown.label, shown.key, Math.min(limit + MORE_STEP, MAX_LIMIT))}>Show {Math.min(MORE_STEP, MAX_LIMIT - limit)} more</button>}{' '}
         {graph.truncated && limit >= MAX_LIMIT && 'One view shows at most 100; tap a neighbour to expand it instead. '}
-        {' '}The full graph is too dense to read (about 6,900 nodes and 30,000 edges): this view is one entity and its neighbours.</p><GraphView key={graph.stamp} graph={graph} onExpand={expand} hint="Tap a node to pull in its neighbours." /></>}
+        {' '}The map above shows the whole graph by type; this view is one entity and its neighbours.</p><GraphView key={graph.stamp} graph={graph} onExpand={expand} hint="Tap a node to pull in its neighbours." /></>}
     </section>
   )
 }
 
 export default function ExplorePage({ params }) {
-  return <div className="explore"><OwnersPanel params={params} /><EntityPanel params={params} /></div>
+  return <div className="explore"><PageIntro title="Explore the graph" what="This is the graph that everything else is built on. At the top, the whole graph drawn by type, with real counts. Below, two tools: look up who owned a folder in any release, and open any single thing (a feature, a team, a design decision) with everything it is connected to." read="On the map a circle is a kind of thing (bigger means more of them) and an arrow is a kind of relationship (thicker means more of them). In the entity view, each dot is a real node and each line a real relationship; tap a dot to pull in its neighbours." tryIt="Hover Person and PR on the map. Then pick pkg/controller/job and compare release 1.30 with the latest to see who gained or lost approval rights." /><SchemaMap /><OwnersPanel params={params} /><EntityPanel params={params} /></div>
 }
