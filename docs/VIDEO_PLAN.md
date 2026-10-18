@@ -1,4 +1,15 @@
-# Demo video plan (about 3 minutes)
+# Demo video
+
+## The main video: a motion-graphics explainer
+
+The main demo video is a motion-graphics explainer built from the real product screenshots and diagrams (the production files are kept locally and are not part of this repository). It is about 3 minutes, every slide carries a caption so it works **with the sound off**, and it has a narration track (Gemini speech: natural, but still synthetic, so recording your own voice over the captions is the upgrade if you want one). Judges mostly decide from the video first, then the README, so it stands alone: the problem, the idea, the proof, the checks, FalkorDB, the honest numbers, and where to try it.
+
+Before uploading: watch it once end to end and cut or reword anything that is not true to you; upload it (YouTube unlisted or public works, or a public Drive link; check it plays when logged out); then put the link in the README ("Demo video") and the blog.
+
+---
+
+## Live screen-recording plan (the alternative, or an addition)
+
 
 Status: a plan only, to be recorded after the code is frozen. The older, more detailed click-by-click script is [demo_script.md](demo_script.md); this plan adds the pieces it lacks (FalkorDB Browser, MCP, the honest evaluation) and fixes the order.
 Rule: **do not show a step you have not rehearsed on the live site the same day.** Cut anything that fails.
