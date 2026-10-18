@@ -193,3 +193,23 @@ a.card { text-decoration: none; transition: transform .12s, box-shadow .12s, bor
   .page-enter, .bar span, .timeline .stage, .schema-canvas, .graph-canvas, .item, .skeleton { animation: none !important; }
   .reveal { opacity: 1; transform: none; transition: none; }
 }
+
+/* ---- quiet polish ---- */
+html { scroll-behavior: smooth; }
+::selection { background: color-mix(in srgb, var(--accent) 22%, #fff); }
+.top { border-bottom: 0; box-shadow: 0 1px 0 var(--border); } .top::after { content: ''; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px; background: linear-gradient(90deg, #2f5bea, #7c4dff, #2f5bea); opacity: .55; }
+* { scrollbar-width: thin; scrollbar-color: #c3cbe0 transparent; }
+.detail section p, .page-intro .what, .home p { max-width: 78ch; }
+.detail section { line-height: 1.6; } .detail section + section { margin-top: 2px; }
+.page-intro.compact { padding: 10px 16px; } .page-intro.compact summary { cursor: pointer; font-size: .95rem; } .page-intro.compact[open] summary { margin-bottom: 8px; }
+
+/* ---- smaller screens: stack columns, wrap the nav, let wide tables scroll inside their box ---- */
+@media (max-width: 1100px) { .split, .split.chat { grid-template-columns: 1fr; } .split-2 { grid-template-columns: 1fr; } }
+@media (max-width: 760px) {
+  html, body { overflow-x: hidden; } .list, .list ul, .item { max-width: 100%; min-width: 0; }
+  .top { padding: 10px 14px; } nav { flex-wrap: wrap; gap: 2px; width: 100%; } .tab { padding: 6px 10px; font-size: .9rem; }
+  main { padding: 14px 12px 24px; } .hero { padding: 28px 16px; } .hero h1 { font-size: 1.7rem; }
+  .stats, .stats.big { grid-template-columns: repeat(2, 1fr); } .sbs, .contrast { grid-template-columns: 1fr; }
+  table, .trace-table { display: block; overflow-x: auto; max-width: 100%; } .ask { flex-wrap: wrap; } .ask input { flex: 1 1 100%; }
+  .row input { min-width: 0; width: 100%; } .graph-canvas, .schema-canvas { height: 300px; } .frame img, img { max-width: 100%; }
+}

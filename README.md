@@ -1,13 +1,13 @@
 <p align="center"><img src="docs/img/banner.png" alt="Lineage: a company brain that knows when its knowledge is out of date, and proves every answer"></p>
 
 <p align="center">
-<b><a href="https://lineage-faov.onrender.com/">▶ Live demo</a></b> &nbsp;·&nbsp; <b><a href="https://drive.google.com/file/d/1fn5dFY0kjds6lYaK5ZafvDz_pvwJAt41/view?usp=sharing">🎬 Demo video (2:39)</a></b> &nbsp;·&nbsp; <b><a href="https://medium.com/@ys.nandhitha/our-docs-said-alpha-the-graph-said-stable-since-1-25-76ad8a7bbb2d">Blog post</a></b> &nbsp;·&nbsp; <b><a href="docs/EXPLAIN_IT.md">Explain it in 10 minutes</a></b>
+<b><a href="https://lineage-faov.onrender.com/">▶ Live demo</a></b> &nbsp;·&nbsp; <b><a href="https://drive.google.com/file/d/1fn5dFY0kjds6lYaK5ZafvDz_pvwJAt41/view?usp=sharing">🎬 Demo video (2:39)</a></b> &nbsp;·&nbsp; <b><a href="https://medium.com/@ys.nandhitha/our-docs-said-alpha-the-graph-said-stable-since-1-25-76ad8a7bbb2d">Blog post (Medium)</a></b> &nbsp;·&nbsp; <b><a href="docs/EXPLAIN_IT.md">Explain it in 10 minutes</a></b>
 </p>
 
 We treat the Kubernetes open-source project as a ~3,000-person company: an org chart, ownership maps, design decisions, release history and documentation that quietly drifts.
 Lineage puts all of it in one **FalkorDB** graph where every fact carries *where it came from* and *when it was true*. It finds docs that no longer match reality, explains why with commit-pinned proof, drafts the fix and suggests who should review it, and an **agent** can chain graph tools to answer questions that need several hops.
 
-<p align="center"><img src="docs/img/hero.gif" alt="A stale docs badge followed through the graph: claim, feature gate, stage per release, design decision, team" width="900"></p>
+<p align="center"><img src="docs/img/hero.gif" alt="The live app: opening the Resource Quotas finding shows what the docs claim next to the verified history, with sources" width="900"><br><sub>The live app: open a finding and see the docs claim next to the verified history, every line linked to its source.</sub></p>
 
 - **Hackathon:** FalkorDB Graph Hacks. **Tracks entered:** Track 3 (Company Brain) and Track 1 (Agents That Act on Connected Data).
 - Independent project built on public Kubernetes data. **Not** an official Kubernetes or CNCF tool. Read-only: it drafts fixes in the app and never posts to Kubernetes.
@@ -38,7 +38,7 @@ The agent chose **two tools** and nothing else:
 
 **Answer:** `mrunalp` (the only approver who is also in the alias), citing evidence `e7`, `e8` and `e23`, each of which opens a commit-pinned source. The validator checked every name in the answer against those rows before it was shown.
 
-<p align="center"><img src="docs/img/agent.gif" alt="The agent chaining two graph tools to answer a multi-hop question, then the toolbox and the MCP server" width="900"></p>
+<p align="center"><img src="docs/img/agent.gif" alt="The live app: the agent answers a multi-hop question with two graph tool calls and cites its evidence" width="900"><br><sub>Recorded from the real app (the model took 14.5 s to think; that wait is shortened here). The trace shows both tool calls, and the evidence panel opens each source.</sub></p>
 
 The tools are **graph queries and algorithms**: ownership walks up the folder tree, `algo.pageRank` over the review network, `algo.SPpaths` shortest paths, a vector index, and traversals over feature gates, design documents, pull requests and teams. The same read-only tools are served over **MCP** at `/mcp/` (and by `python -m lineage.mcp_server`), so any AI client can choose them and cite their evidence. The agent *acts* on what the graph shows by drafting a corrected docs line and routing it to the right reviewers; it never posts anything.
 
@@ -178,11 +178,10 @@ Copyright belongs to The Kubernetes Authors. Snapshot commits: [snapshot/manifes
 
 Built with **Claude Code (Anthropic)**, which wrote most of the code, tests and documentation under the team's direction, working from the brief in [CLAUDE.md](CLAUDE.md). Every technical choice is logged one line at a time in [DECISIONS.md](DECISIONS.md), including mistakes the AI made and how they were found.
 
-**What the team did:** *(drafted from the repository history and the decisions recorded in this project)*
-- **Nan (nandhithr6, project owner):** set the project, scope and tracks (the brief in [CLAUDE.md](CLAUDE.md): Kubernetes as a company, the drift-detection workflow, FalkorDB at the centre). Made the calls recorded in [DECISIONS.md](DECISIONS.md): Python and a hand-written agent loop instead of a framework, dropping Hugging Face Spaces because Docker Spaces are paid, deploying on Render's free tier with a one-command local setup as the baseline, keeping the embedding signal off, and requiring that the independent held-out questions be written by people, not by the AI. Deployed the Render service. Did the human verification: 21 of the 73 confident links (20 correct, 1 wrong), all 3 findings (3 true), the 4 new embedding links (3 of 4 correct, so the signal stays off) and the 7 saved Ask answers (3 supported, 4 not supported, which is why the demo shows the hero through the Findings page).
-- **Abiram (Abiram116):** added the independent held-out question set (committed before any system saw it, with the AI told not to read it) and committed and pushed the final stretch of work, including the UI redesign, the independent evaluation and the README.
-- **Claude Code (AI):** wrote the code, tests and drafts under that direction, and checked its own work against the data (see the disclosure above).
-- **Understanding:** each module was explained before it was written (a standing rule in [CLAUDE.md](CLAUDE.md)), every decision is a line in [DECISIONS.md](DECISIONS.md), and [docs/EXPLAIN_IT.md](docs/EXPLAIN_IT.md) is a plain-language walkthrough of the graph model, three of the queries and the main decisions, written for the team to explain the work.
+**What the team did** (we chose one track each and built both together)
+- **Nandhitha (nandhithr6):** chose the project and scope, picked Track 1 (the agent), and made the main technical calls: FalkorDB at the centre, Python with a hand-written agent loop instead of a framework, Render's free tier plus a one-command local setup, keeping the embedding signal off, and having people (not the AI) write the independent test questions. Deployed the live site.
+- **Abiram (Abiram116):** picked Track 3 (the company brain), and did the human verification: 21 of the 73 confident links (20 correct, 1 wrong), all 3 findings (all real), the 4 new embedding links (3 correct, so that signal stays off) and the 7 saved Ask answers (3 supported). Added the independent held-out question set before any system saw it, and committed and pushed the final stretch of work.
+- **How we can explain it:** every module was explained before it was written, every decision is one line in [DECISIONS.md](DECISIONS.md), and [docs/EXPLAIN_IT.md](docs/EXPLAIN_IT.md) walks through the graph model, the key queries and the main decisions in plain language.
 
 ## Repository layout
 
