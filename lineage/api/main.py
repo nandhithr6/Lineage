@@ -88,6 +88,7 @@ def warm_caches() -> None:
         g = _graph()
         for months in (12,):
             ownership_views(g, months)
+        cached(("keyrev", g.name), lambda: review_network_top(g, 12))  # the PageRank run behind Insights
         _log.info("ownership caches warmed")
     except Exception as e:  # the app must still start if the graph is not ready yet
         _log.warning("cache warm-up skipped: %s", e)
@@ -444,7 +445,7 @@ def insights(months: int = Query(12, ge=1, le=36), g: Graph = Depends(get_graph)
         months=months, ownership_gaps=[GapRow(**r) for r in gaps],
         orphaned=[OrphanRow(path=o["path"], listed_approvers=o["listed_approvers"], active_people=o["active_people"], active_but_not_listed=o["unlisted_active"]) for o in orphan_rows],
         dormant=[DormantRow(path=d["path"], listed_approvers=d["listed_approvers"]) for d in views["dormant"]],
-        key_reviewers=[KeyReviewer(**r) for r in review_network_top(g, 12)],
+        key_reviewers=[KeyReviewer(**r) for r in cached(("keyrev", g.name), lambda: review_network_top(g, 12))],
         notes=[COVERAGE_NOTE, "PageRank ranks position in the review network (rank flows from an author to the people who review them); it is not a measure of skill or ownership.",
                "Orphaned = other people did work in the folder but no listed approver was active (the risk). Dormant = no recorded activity at all, often just stable code (not a risk).",
                "The activity window ends at the snapshot date (2026-10-15), where the pull-request data ends, not at today's date."])
