@@ -23,7 +23,7 @@ from lineage.agent.answer_cache import AnswerCache
 from lineage.agent.loop import preflight_result, run_agent
 from lineage.agent.tools import ToolBox
 from lineage.api.models import (AboutData, AskRequest, AskResponse, ChangesResponse, Edge, EntityResponse, FindingDetail, FindingList,
-                                FindingSummary, FixResponse, Health, Node, OwnerRow, OwnersResponse, ExpertRow, ExpertsResponse, OrphanRow, GapRow, KeyReviewer, InsightsResponse, DormantRow, ChangesSince, SnapshotInfo, SnapshotList, SearchResponse, SaveNoteRequest)
+                                FindingSummary, FixResponse, Health, Node, OwnerRow, OwnersResponse, ExpertRow, ExpertsResponse, OrphanRow, GapRow, KeyReviewer, InsightsResponse, DormantRow, ChangesSince, SnapshotInfo, SnapshotList, SearchResponse, SaveNoteRequest, SchemaEdge, SchemaNode, SchemaResponse)
 from lineage.config import llm_configured, load_settings
 from lineage.detect.fix import draft_fix
 from lineage.graph.client import connect
@@ -449,6 +449,17 @@ def insights(months: int = Query(12, ge=1, le=36), g: Graph = Depends(get_graph)
         notes=[COVERAGE_NOTE, "PageRank ranks position in the review network (rank flows from an author to the people who review them); it is not a measure of skill or ownership.",
                "Orphaned = other people did work in the folder but no listed approver was active (the risk). Dormant = no recorded activity at all, often just stable code (not a risk).",
                "The activity window ends at the snapshot date (2026-10-15), where the pull-request data ends, not at today's date."])
+
+
+@app.get("/schema", response_model=SchemaResponse)
+def schema(g: Graph = Depends(get_graph)) -> SchemaResponse:
+    """The whole graph at the level of types: how many nodes of each kind and how many relationships of each kind run between which kinds. Private session notes are left out."""
+    def build() -> SchemaResponse:
+        nodes = [SchemaNode(label=r[0], count=r[1]) for r in g.ro_query("MATCH (n) RETURN labels(n)[0], count(n) ORDER BY count(n) DESC").result_set if r[0] != "Note"]
+        edges = [SchemaEdge(source=r[0], type=r[1], target=r[2], count=r[3]) for r in g.ro_query(
+            "MATCH (a)-[r]->(b) WHERE ID(r) >= 0 RETURN labels(a)[0], type(r), labels(b)[0], count(r) ORDER BY count(r) DESC").result_set if "Note" not in (r[0], r[2])]
+        return SchemaResponse(nodes=nodes, edges=edges)
+    return cached(("schema", g.name), build, ttl=3600)
 
 
 KEYS = {"Release": "num", "FeatureGate": "name", "DocPage": "path", "DocSection": "id", "Claim": "id", "KEP": "id", "SIG": "id",

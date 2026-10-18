@@ -158,6 +158,23 @@ class ChangesSince(BaseModel):
     caveats: list[str]
 
 
+class SchemaNode(BaseModel):
+    label: str
+    count: int
+
+
+class SchemaEdge(BaseModel):
+    source: str
+    type: str
+    target: str
+    count: int
+
+
+class SchemaResponse(BaseModel):
+    nodes: list[SchemaNode]
+    edges: list[SchemaEdge]
+
+
 class AboutData(BaseModel):
     snapshot_date: str | None
     age_days: int | None = None

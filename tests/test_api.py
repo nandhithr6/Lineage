@@ -250,3 +250,11 @@ def test_unknown_names_in_the_question_are_answered_without_a_model_or_a_key(cli
             r = client.post("/ask", json={"question": q})
             assert r.status_code == 200 and r.json()["outcome"] == "unknown_entity" and needle in r.json()["answer"] and r.json()["tool_trace"][0]["tool"] == "resolve_question"
     assert client.post("/ask", json={"question": "something a model must answer"}).status_code == 503  # an ordinary question still needs the model
+
+
+def test_schema_describes_the_whole_graph_by_type(client):
+    body = client.get("/schema").json()
+    nodes = {n["label"]: n["count"] for n in body["nodes"]}
+    assert nodes["FeatureGate"] > 400 and "Note" not in nodes
+    assert any(e["source"] == "FeatureGate" and e["type"] == "STAGE_IN" and e["target"] == "Release" and e["count"] > 1000 for e in body["edges"])
+    assert all(e["source"] in nodes and e["target"] in nodes for e in body["edges"])
