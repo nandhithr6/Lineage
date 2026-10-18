@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -28,6 +29,12 @@ logging.getLogger("httpx").setLevel(logging.WARNING)  # httpx logs full URLs at 
 
 API = "https://api.github.com/graphql"
 CACHE = Path("data/raw/github_cache")
+EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@(?:[A-Za-z][A-Za-z0-9-]*\.)+[A-Za-z]{2,}")  # domain labels start with a letter, so "toolchain@v0.0.1-go1.25.7.linux" is not an address
+
+
+def redact_emails(text: str) -> str:
+    """Hackathon rule: no personal data. Commit trailers (Co-authored-by, Signed-off-by) in PR bodies carry email addresses; the name and GitHub handle stay, the address does not."""
+    return EMAIL.sub("<email removed>", text)
 SNAPSHOT = Path("snapshot/prs.jsonl")
 REPO = "kubernetes/kubernetes"
 PAGE = 25
@@ -172,7 +179,7 @@ def normalize(cache_dir: Path = CACHE) -> list[dict]:
                 "files_total": n["files"]["totalCount"], "files_truncated": n["files"]["totalCount"] > len(files),
                 "reviews": [{"login": (r["author"] or {}).get("login", "").lower(), "state": r["state"], "at": r["submittedAt"]} for r in n["reviews"]["nodes"] if r.get("author")],
                 "reviews_total": n["reviews"]["totalCount"], "reviews_truncated": n["reviews"]["totalCount"] > len(n["reviews"]["nodes"]),
-                "body": (n.get("body") or "")[:BODY_MAX],  # head of the description: the KEP / tracking-issue links and "Fixes #N" lines sit at the top
+                "body": redact_emails((n.get("body") or "")[:BODY_MAX]),  # head of the description: the KEP / tracking-issue links and "Fixes #N" lines sit at the top
                 "closes": [{"repo": i["repository"]["nameWithOwner"], "number": i["number"], "title": i["title"], "url": i["url"], "state": i["state"],
                             "created_at": i["createdAt"], "closed_at": i["closedAt"]} for i in ((n.get("closingIssuesReferences") or {}).get("nodes") or []) if i],
             }

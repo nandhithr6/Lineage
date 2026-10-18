@@ -130,3 +130,11 @@ def test_base_branch_is_kept_and_an_older_cache_cannot_erase_it(tmp_path):
     (tmp_path / "a_new.json").write_text(json.dumps(page([new], 1)["data"]))
     (tmp_path / "z_old.json").write_text(json.dumps(page([old], 1)["data"]))  # sorts later, so it is read last
     assert G.normalize(tmp_path)[0]["base_ref"] == "release-1.31"
+
+
+def test_redact_emails_keeps_name_and_drops_address():
+    from lineage.ingest.github_prs import redact_emails
+
+    assert redact_emails("Co-authored-by: Jordan Liggitt <liggitt@google.com> done") == "Co-authored-by: Jordan Liggitt <<email removed>> done"
+    assert redact_emails("see @user and github.com/x/y") == "see @user and github.com/x/y"
+    assert redact_emails("go toolchain@v0.0.1-go1.25.7.linux-amd64 ok") == "go toolchain@v0.0.1-go1.25.7.linux-amd64 ok"  # not an address
