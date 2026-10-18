@@ -258,3 +258,12 @@ def test_schema_describes_the_whole_graph_by_type(client):
     assert nodes["FeatureGate"] > 400 and "Note" not in nodes
     assert any(e["source"] == "FeatureGate" and e["type"] == "STAGE_IN" and e["target"] == "Release" and e["count"] > 1000 for e in body["edges"])
     assert all(e["source"] in nodes and e["target"] in nodes for e in body["edges"])
+
+
+def test_entity_accepts_a_release_written_as_people_write_it(client):
+    by_number = client.get("/entity/Release/130")
+    assert by_number.status_code == 200
+    for written in ("1.30", "v1.30"):
+        r = client.get(f"/entity/Release/{written}")
+        assert r.status_code == 200 and r.json()["node"]["id"] == by_number.json()["node"]["id"], written
+    assert client.get("/entity/Release/1.999").status_code == 404

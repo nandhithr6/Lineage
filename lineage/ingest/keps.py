@@ -95,8 +95,12 @@ def normalise_status(raw: object, issues: list[str]) -> str | None:
     return None
 
 
-def resolve_refs(values: object, known: set[str]) -> tuple[list[str], list[str]]:
-    """Split references into KEP ids we can resolve ('/keps/sig-node/123-slug[.md]') and everything else."""
+def resolve_refs(values: object, known: set[str], renamed: list[str] | None = None) -> tuple[list[str], list[str]]:
+    """Split references into KEP ids we can resolve ('/keps/sig-node/123-slug[.md]') and everything else.
+
+    A KEP folder is sometimes renamed after other KEPs linked to it ('4438-sidecar-restart-termination' became '4438-container-restart-termination'). When the exact path is gone,
+    the reference still resolves if the same team has exactly ONE KEP with the same number; the rename is recorded in `renamed` so the gap is visible, not hidden.
+    """
     resolved, other = [], []
     for v in values or []:
         s = str(v).strip()
@@ -105,8 +109,15 @@ def resolve_refs(values: object, known: set[str]) -> tuple[list[str], list[str]]
         m = re.match(r"^/?keps/([\w-]+)/([\w.-]+?)(?:\.md)?(?:/.*)?$", s)
         if m and f"{m.group(1)}/{m.group(2)}" in known:
             resolved.append(f"{m.group(1)}/{m.group(2)}")
-        else:
-            other.append(s)
+            continue
+        if m and (num := re.match(r"(\d+)-", m.group(2))):
+            same_number = [k for k in known if k.startswith(f"{m.group(1)}/{num.group(1)}-")]
+            if len(same_number) == 1:
+                resolved.append(same_number[0])
+                if renamed is not None:
+                    renamed.append(f"{m.group(1)}/{m.group(2)} -> {same_number[0]}")
+                continue
+        other.append(s)
     return resolved, other
 
 
@@ -147,9 +158,11 @@ def parse_keps(repo_root: Path = ENHANCEMENTS_REPO, gate_names: list[str] | None
         text = readme.read_text(encoding="utf-8", errors="replace") if readme.exists() else ""
         if not readme.exists():
             issues.append("no README.md")
-        replaces, r_other = resolve_refs(y.get("replaces"), ids)
-        see_also, s_other = resolve_refs(y.get("see-also"), ids)
-        superseded, d_other = resolve_refs(y.get("superseded-by"), ids)
+        renamed: list[str] = []
+        replaces, r_other = resolve_refs(y.get("replaces"), ids, renamed)
+        see_also, s_other = resolve_refs(y.get("see-also"), ids, renamed)
+        superseded, d_other = resolve_refs(y.get("superseded-by"), ids, renamed)
+        issues.extend(f"reference followed a renamed KEP folder: {r}" for r in renamed)
         number = y.get("kep-number")
         try:
             number = int(number)

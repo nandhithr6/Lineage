@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 import logging
 import os
@@ -472,6 +473,8 @@ def entity(label: str, key: str, limit: int = Query(40, ge=1, le=100), g: Graph 
         raise HTTPException(404, f"Unknown label {label!r}; choose one of {sorted(KEYS)}")
     prop = KEYS[label]
     val: object = int(key) if prop == "num" and key.isdigit() else key
+    if label == "Release" and (m := re.fullmatch(r"v?1\.(\d{1,2})", key.strip())):  # "1.30" / "v1.30" mean the release stored as 130
+        val = 100 + int(m.group(1))
     n = g.ro_query(f"MATCH (n:{label} {{{prop}: $k}}) RETURN n", {"k": val}).result_set
     if not n:
         raise HTTPException(404, f"No {label} with {prop}={key!r}")

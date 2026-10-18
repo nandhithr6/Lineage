@@ -66,3 +66,16 @@ def test_nameless_feature_gate_entries_are_skipped_and_reported(tmp_path):
     subprocess.run(["git", "-C", str(repo), "-c", "user.email=a@b.c", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "i"], check=True)
     [k] = K.parse_keps(repo)
     assert k.feature_gates == ["Real"] and sum("without a name" in i for i in k.issues) == 2
+
+
+def test_resolve_refs_follows_a_renamed_kep_folder_only_when_unambiguous():
+    known = {"sig-node/4438-container-restart-termination", "sig-node/500-a", "sig-node/500-b"}
+    renamed: list[str] = []
+    res, other = resolve_refs(["/keps/sig-node/4438-sidecar-restart-termination",   # old slug, same number: exactly one KEP has it now
+                               "/keps/sig-node/500-old-name",                       # two KEPs share the number: ambiguous, never guessed
+                               "/keps/sig-apps/4438-sidecar-restart-termination"],  # another team: no match
+                              known, renamed)
+    assert res == ["sig-node/4438-container-restart-termination"]
+    assert other == ["/keps/sig-node/500-old-name", "/keps/sig-apps/4438-sidecar-restart-termination"]
+    assert renamed == ["sig-node/4438-sidecar-restart-termination -> sig-node/4438-container-restart-termination"]
+    assert resolve_refs(["/keps/sig-node/4438-sidecar-restart-termination"], known)[0] == ["sig-node/4438-container-restart-termination"]  # the note is optional

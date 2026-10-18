@@ -91,3 +91,16 @@ def test_the_model_is_not_called_when_the_question_names_something_unknown(g):
     assert "did you mean: LocalStorageCapacityIsolation" in r.answer and r.tool_trace[0]["tool"] == "resolve_question" and r.tool_trace[0]["unresolved"][0]["given"] == "LocalStorageCapacityIsolatio"
     r2 = run_agent(FakeLLM([LLMResponse("They will be X [e1].")]), ToolBox(g), "Who will approve pkg/controller/job in release 1.45?")
     assert r2.outcome == "unknown_entity" and "release 1.45" in r2.answer and r2.citations == []
+
+
+def test_a_kep_written_by_number_reaches_the_tool_as_its_real_id(g):
+    from lineage.agent.tools import ToolBox
+    tools = ToolBox(g)
+    real_id = "sig-storage/361-local-ephemeral-storage-isolation"
+    for written in ("KEP-361", "kep 361", "361", "KEP #361"):
+        r = R.resolve_kep_or_gate(g, written)
+        assert r.ok and r.label == "KEP" and r.canonical == real_id, written  # a number becomes the id
+        done = tools.call("decision_lineage", {"kep_or_gate": written})
+        assert done["outcome"] == "answered_with_path" and done["validated_args"]["kep_or_gate"] == real_id and done["evidence"][0]["from"] == f"KEP:{real_id}", written
+    topic = R.resolve_kep_or_gate(g, "local ephemeral storage")  # a topic stays as written, so the tool can return every matching KEP
+    assert topic.ok and topic.canonical == "local ephemeral storage"

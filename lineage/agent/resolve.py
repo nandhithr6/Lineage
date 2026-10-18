@@ -86,7 +86,10 @@ def resolve_sig(g: Graph, name: str) -> Resolution:
 
 
 def resolve_team(g: Graph, name: str) -> Resolution:
+    """An OWNERS alias by id (`kubernetes:sig-node-approvers`) or, as people write it, by the bare alias (`sig-node-approvers`); kubernetes/kubernetes wins when both repositories have it."""
     row = g.ro_query("MATCH (n:Team) WHERE toLower(n.id) = toLower($n) RETURN n.id", {"n": name}).result_set
+    if not row:
+        row = g.ro_query("MATCH (n:Team) WHERE toLower(n.alias) = toLower($n) RETURN n.id ORDER BY n.repo = 'kubernetes' DESC, n.id", {"n": name.strip()}).result_set
     return Resolution("team", name, True, row[0][0], "Team", key=row[0][0]) if row else _unknown("team", name, names(g, "team"))
 
 
@@ -170,7 +173,10 @@ def resolve_kep_or_gate(g: Graph, value: str) -> Resolution:
         return Resolution("kep_or_gate", value, True, r.canonical, "FeatureGate")
     k = resolve_kep(g, value)
     if k.ok:
-        return Resolution("kep_or_gate", value, True, value, "KEP")
+        # A KEP written by NUMBER ("KEP-753", "753") must reach the tool as its real id, or the tool's text search for "KEP-753" finds nothing in ids like "sig-node/753-...".
+        # A title fragment stays as written: the tool then returns every KEP that matches the topic.
+        by_number = value.strip().lower().replace("kep", "").strip(" -#:").isdigit()
+        return Resolution("kep_or_gate", value, True, k.canonical if by_number else value, "KEP", key=k.key)
     return Resolution("kep_or_gate", value, False, suggestions=list(dict.fromkeys(r.suggestions + k.suggestions))[:3], note=f"no feature gate or design decision (KEP) matches {value!r}")
 
 

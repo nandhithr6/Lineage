@@ -170,3 +170,21 @@ def test_issues_and_pr_kep_links_are_loaded_with_provenance_and_shown_in_the_tra
     assert q("MATCH ()-[e:IMPLEMENTS]->() RETURN count(e)")[0][0] == 1
     k = build_trace(graph, "resource-quotas")["sections"]["kep"]
     assert k["prs_strong"] == 1 and k["prs_weak"] == 0 and [p["number"] for p in k["prs"]] == [1] and k["prs"][0]["issues"][0]["id"] == "kubernetes/kubernetes#77"
+
+
+def test_pr_reviews_tool_answers_from_the_loaded_pull_requests(graph):  # noqa: F811
+    from lineage.agent.tools import ToolBox
+    loaded(graph)
+    known = {r[0] for r in graph.ro_query("MATCH (c:CodePath {repo:'kubernetes'}) RETURN c.path").result_set}
+    load_prs(graph, [pr(90, "2026-10-01T00:00:00Z", ["pkg/volume"], [])], known, "2026-10-15T00:00:00+00:00")  # loaded, no formal review
+    tools = ToolBox(graph)
+    done = tools.call("pr_reviews", {"number": 1})
+    assert done["outcome"] == "answered_with_path"
+    head = done["evidence"][0]
+    assert head["type"] == "PR" and head["props"]["formal_reviews_recorded"] == 2 and head["source_url"].endswith("/pull/1")
+    reviews = {e["from"]: e for e in done["evidence"] if e["type"] == "REVIEWED"}
+    assert reviews["Person:msau42"]["props"]["approved"] is True and reviews["Person:bob"]["props"]["approved"] is False and reviews["Person:msau42"]["source_url"]
+    none = tools.call("pr_reviews", {"number": 90})  # loaded with no review: that is an ANSWER, stated as such
+    assert none["outcome"] == "answered_with_path" and none["evidence"][0]["props"]["formal_reviews_recorded"] == 0 and "no formal review" in none["evidence"][0]["props"]["note"]
+    missing = tools.call("pr_reviews", {"number": 424242})  # not loaded: never reported as "no reviews"
+    assert missing["outcome"] == "not_in_graph" and "not among the loaded data" in missing["params"]["note"] and "not evidence that it had none" in missing["params"]["note"]

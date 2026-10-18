@@ -203,3 +203,26 @@ def test_trace_records_validated_arguments_duration_rows_and_outcome(toolbox):
     llm2 = FakeLLM([tc("gate_timeline", gate="NoSuchGate"), LLMResponse("x")])
     (bad,) = run_agent(llm2, toolbox, "q").tool_trace
     assert bad["params"] == {"gate": "NoSuchGate"} and bad["given"] is None and bad["evidence"] == 0 and bad["outcome"] == "unknown_entity" and bad["unresolved"][0]["argument"] == "gate"
+
+
+def test_removed_gate_never_offers_a_removal_release(toolbox):
+    node = toolbox.call("gate_timeline", {"gate": "ReadWriteOncePod"})["evidence"][0]
+    assert node["props"]["removed"] is True and "not recorded" in node["props"]["removal_release"]
+
+
+def test_looked_up_label_says_it_cannot_go_stale(toolbox):
+    rows = toolbox.call("doc_claims", {"page_or_section": "Sidecar Containers"})["evidence"]
+    assert rows and all("can NEVER be out of date" in r["props"]["label_note"] for r in rows if r["props"]["kind"] == "gate_lookup")
+    hard = toolbox.call("doc_claims", {"page_or_section": "resource-quotas"})["evidence"]
+    assert any("CAN go out of date" in r["props"].get("label_note", "") for r in hard)
+
+
+def test_team_members_resolves_an_owners_alias_to_people_now_and_in_a_past_release(toolbox):
+    now = toolbox.call("team_members", {"team": "sig-node-approvers"})  # written the way people write it, without the repo prefix
+    assert now["outcome"] == "answered_with_path" and now["validated_args"]["team"] == "kubernetes:sig-node-approvers"
+    handles = {e["from"] for e in now["evidence"]}
+    assert "Person:mrunalp" in handles and "Person:sergeykanzhelev" in handles and all(e["source_url"] for e in now["evidence"])
+    then = {e["from"] for e in toolbox.call("team_members", {"team": "kubernetes:sig-node-approvers", "as_of": "1.30"})["evidence"]}
+    assert "Person:mrunalp" in then and "Person:sergeykanzhelev" not in then  # sergeykanzhelev joined the alias at 1.32
+    assert toolbox.call("team_members", {"team": "sig-nope-approvers"})["outcome"] == "unknown_entity"
+    assert toolbox.call("team_members", {"team": "sig-node-approvers", "as_of": "1.45"})["outcome"] == "unknown_entity"  # a release that does not exist

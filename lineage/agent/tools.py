@@ -122,7 +122,10 @@ class ToolBox:
             b["status"] = "insufficient_evidence"
             return b
         removed, final, url = info[0]
-        put(b, "node", "FeatureGate", f"FeatureGate:{gate}", None, {"removed": bool(removed), "final_stage": final}, url)
+        props = {"removed": bool(removed), "final_stage": final}
+        if removed:  # a stage range ends at the last release the gate HAD a stage; it is not the release of removal, and the gate file does not record that
+            props["removal_release"] = "not recorded in the gate file (the last stage range ends before removal; do not state a removal release)"
+        put(b, "node", "FeatureGate", f"FeatureGate:{gate}", None, props, url)
         for h in stage_ranges(self.g.ro_query(Q_HISTORY, {"g": gate}).result_set):
             put(b, "edge", "STAGE_IN", f"FeatureGate:{gate}", f"Release:{h['from']}..{h['to']}",
                 {"stage": h["stage"], "from": h["from"], "to": h["to"], "overlap": h["overlap"]}, h["source_url"])
@@ -151,7 +154,9 @@ class ToolBox:
                 {"kind": kind, "stage": state, "since": since, "line": line, "section": heading, "linked_gate": top["gate"] if top else None,
                  "link_confidence": top["confidence"] if top else None, "link_method": top["method"] if top else None,
                  "candidate_gates": cands, "link_note": ("confident" if top and (top["confidence"] or 0) >= 0.8 else "NOT confident: a possible link only" if top else "no gate linked"),
-                 "checked_for_drift": bool(eligible)}, url)
+                 "checked_for_drift": bool(eligible),
+                 **({"label_note": "this label names its feature gate (feature_gate_name), so its stage is looked up from the gate file and it can NEVER be out of date"} if kind == "gate_lookup" else
+                    {"label_note": "this label is hard-coded: its stage is typed by hand and CAN go out of date"} if kind == "hardcoded" else {})}, url)
         return b
 
     def owners_of(self, path: str, repo: str = "kubernetes", as_of: str | None = None) -> dict:
@@ -179,6 +184,50 @@ class ToolBox:
                  "hops_above_path": r["hops"], "as_of": b["params"]["as_of"]}, r["source_url"])
         if b["status"] == "ok":
             b["path"] = [f"CodePath:{repo}:{path}"] + sorted({f"CodePath:{repo}:{r['declared_at']}" for r in rows})
+        return b
+
+    def pr_reviews(self, number: int) -> dict:
+        """One pull request: who wrote it, who reviewed or approved it, when it merged and which team labels it carries. Only merged PRs of sig-storage, sig-node and sig-apps from the last two years are loaded."""
+        b = bundle("pr_reviews", {"number": number})
+        try:
+            n = int(str(number).lstrip("#"))
+        except ValueError:
+            b["status"] = "insufficient_evidence"
+            return b
+        b["params"]["number"] = n
+        pr = self.g.ro_query("MATCH (p:PR {number: $n}) RETURN p.title, p.url, p.merged_at, p.sigs, p.reviews_truncated", {"n": n}).result_set
+        if not pr:
+            b["status"] = "insufficient_evidence"
+            b["params"]["note"] = (f"pull request {n} is not among the loaded data (merged PRs of sig-storage, sig-node and sig-apps from the last two years), "
+                                   "so nothing can be said about its reviews. This is not evidence that it had none.")
+            return b
+        title, url, merged, sigs, truncated = pr[0]
+        authors = [r[0] for r in self.g.ro_query("MATCH (a:Person)-[:AUTHORED]->(p:PR {number: $n}) RETURN a.handle", {"n": n}).result_set]
+        approvers = {r[0] for r in self.g.ro_query("MATCH (a:Person)-[:APPROVED]->(p:PR {number: $n}) RETURN a.handle", {"n": n}).result_set}
+        reviewers = self.g.ro_query("MATCH (r:Person)-[e:REVIEWED]->(p:PR {number: $n}) WHERE ID(e) >= 0 RETURN r.handle, e.count, e.at, e.source_url ORDER BY e.at", {"n": n}).result_set
+        put(b, "node", "PR", f"PR:{n}", None, {"title": title, "merged_at": merged, "sigs": sigs, "authors": authors, "formal_reviews_recorded": len(reviewers),
+                                             "reviews_truncated": bool(truncated),
+                                             **({} if reviewers else {"note": "no formal review is recorded for this pull request"})}, url)
+        for handle, count, at, src in reviewers:
+            put(b, "edge", "REVIEWED", f"Person:{handle}", f"PR:{n}", {"reviews": count, "last_review_at": at, "approved": handle in approvers}, src or url)
+        b["path"] = [f"PR:{n}"] + [f"Person:{r[0]}" for r in reviewers]
+        return b
+
+    def team_members(self, team: str, as_of: str | None = None) -> dict:
+        """The people in an OWNERS alias (a Team such as sig-node-approvers), now or as of a sampled release 1.30 to 1.37."""
+        num = release_num(as_of)
+        b = bundle("team_members", {"team": team, "as_of": as_of or "latest"})
+        problem = ownership_release_problem(num, "kubernetes")
+        if problem:
+            b["status"] = "insufficient_evidence"
+            b["params"]["note"] = problem + ". Do not substitute the current members for the requested release."
+            return b
+        rows = self.g.ro_query("""MATCH (p:Person)-[m:MEMBER_OF]->(t:Team {id: $t}) WHERE m.valid_from <= $n AND (m.valid_to IS NULL OR m.valid_to > $n)
+                                  RETURN p.handle, m.valid_from, m.valid_to, m.source_url ORDER BY p.handle""", {"t": team, "n": num}).result_set
+        for handle, vf, vt, url in rows:
+            put(b, "edge", "MEMBER_OF", f"Person:{handle}", f"Team:{team}", {"valid_from_release": vf, "valid_to_release": vt, "as_of": b["params"]["as_of"]}, url)
+        if b["status"] == "ok":
+            b["path"] = [f"Team:{team}"] + [f"Person:{r[0]}" for r in rows]
         return b
 
     def decision_lineage(self, kep_or_gate: str) -> dict:
@@ -434,6 +483,10 @@ class ToolBox:
          "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "k": {"type": "integer"}}, "required": ["query"]}},
         {"name": "path_between", "description": "How two things are connected in the graph (a feature gate, person, team, SIG, KEP, folder or docs page): the shortest path between them, hop by hop, over ownership, membership, design decisions and docs structure. Use it for 'how is X related to Y'.",
          "parameters": {"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "string"}, "max_hops": {"type": "integer"}}, "required": ["a", "b"]}},
+        {"name": "pr_reviews", "description": "One pull request by number: its author, who reviewed or approved it, when it merged. Only merged PRs of sig-storage, sig-node and sig-apps from the last two years are loaded; a PR outside that is reported as not loaded, never as having no reviews.",
+         "parameters": {"type": "object", "properties": {"number": {"type": "integer", "description": "the pull request number, e.g. 131868"}}, "required": ["number"]}},
+        {"name": "team_members", "description": "The people in an OWNERS alias such as sig-node-approvers or sig-apps-approvers (the list OWNERS files refer to), now or as of a release from 1.30. Use it to resolve an alias to people.",
+         "parameters": {"type": "object", "properties": {"team": {"type": "string", "description": "the alias, e.g. sig-node-approvers"}, "as_of": {"type": "string", "description": "release such as 1.30; omit for now"}}, "required": ["team"]}},
         {"name": "sig_leaders", "description": "Chairs, tech leads and emeritus leads of a Kubernetes team (SIG), working group or committee, e.g. sig-storage.",
          "parameters": {"type": "object", "properties": {"sig": {"type": "string"}}, "required": ["sig"]}},
         {"name": "decision_lineage", "description": "The design decision (KEP) behind a feature gate or topic: status, owning team, authors, approvers, replaced or related KEPs.",
@@ -452,6 +505,7 @@ class ToolBox:
         "experts_for": [("path", "path")],
         "what_changed": [("entity", "gate_or_path"), ("from_release", "release"), ("to_release", "release")],
         "sig_leaders": [("sig", "sig")],
+        "team_members": [("team", "team"), ("as_of", "release")],
         "path_between": [("a", "entity"), ("b", "entity")],
     }
 
@@ -467,7 +521,7 @@ class ToolBox:
                  else resolve_entity(self.g, str(value), repo) if kind == "entity"
                  else RESOLVERS[kind](self.g, str(value) if kind != "release" else value))
             if r.ok:
-                if r.canonical is not None and kind in ("gate", "sig", "path"):
+                if r.canonical is not None and kind in ("gate", "sig", "path", "kep_or_gate", "team"):
                     out[arg] = r.canonical
             else:
                 failed.append((arg, r))
