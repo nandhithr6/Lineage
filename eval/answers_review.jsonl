@@ -1,0 +1,7 @@
+{"key": "a1571e524ce5f30744dd1f60", "question": "Why is the Resource Quotas page stale?", "mode": "graph", "human_verdict": "not_supported", "human_labeled_by": "owner (human check)", "human_date": "2026-10-17"}
+{"key": "40daaed38c0619e41e75b00c", "question": "Is the 'stable since v1.27' label in the CronJob time zones section correct?", "mode": "graph", "human_verdict": "supported", "human_labeled_by": "owner (human check)", "human_date": "2026-10-17"}
+{"key": "078cb406c91a2bff6d319c87", "question": "Who owned pkg/controller/job in 1.30 and who owns it now?", "mode": "graph", "human_verdict": "not_supported", "human_labeled_by": "owner (human check)", "human_date": "2026-10-17"}
+{"key": "bdb4248ede5e7c2c58acebee", "question": "Who officially owns pkg/volume and who actually reviews it?", "mode": "graph", "human_verdict": "not_supported", "human_labeled_by": "owner (human check)", "human_date": "2026-10-17"}
+{"key": "fa02b1ddb0e9e4dda25083f5", "question": "What design decision introduced LocalStorageCapacityIsolation?", "mode": "graph", "human_verdict": "supported", "human_labeled_by": "owner (human check)", "human_date": "2026-10-17"}
+{"key": "f0fd302c1f2b927a136078dd", "question": "Which docs pages look out of date?", "mode": "graph", "human_verdict": "not_supported", "human_labeled_by": "owner (human check)", "human_date": "2026-10-17"}
+{"key": "e872dd2c7ee2fb556339f6e5", "question": "Why is the Resource Quotas page stale?", "mode": "retrieval", "human_verdict": "supported", "human_labeled_by": "owner (human check)", "human_date": "2026-10-17"}

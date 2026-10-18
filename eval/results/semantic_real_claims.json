@@ -20,7 +20,10 @@
    "previously": [
     "KubeletPodResourcesGetAllocatable",
     0.665
-   ]
+   ],
+   "human_verdict": "correct",
+   "human_labeled_by": "owner (human check)",
+   "human_date": "2026-10-17"
   },
   {
    "claim": "content/en/docs/concepts/policy/pid-limiting.md#:1",
@@ -34,7 +37,10 @@
    "previously": [
     "SupportNodePidsLimit",
     0.79
-   ]
+   ],
+   "human_verdict": "unsure",
+   "human_labeled_by": "owner (human check)",
+   "human_date": "2026-10-17"
   },
   {
    "claim": "content/en/docs/concepts/workloads/controllers/statefulset.md#minimum-ready-seconds:1",
@@ -48,7 +54,10 @@
    "previously": [
     "StatefulSetMinReadySeconds",
     0.746
-   ]
+   ],
+   "human_verdict": "correct",
+   "human_labeled_by": "owner (human check)",
+   "human_date": "2026-10-17"
   },
   {
    "claim": "content/en/docs/tasks/administer-cluster/kms-provider.md#kms-v1:1",
@@ -63,7 +72,10 @@
    "previously": [
     "KMSv1",
     0.79
-   ]
+   ],
+   "human_verdict": "correct",
+   "human_labeled_by": "owner (human check)",
+   "human_date": "2026-10-17"
   }
  ],
  "lost_confidence": [
