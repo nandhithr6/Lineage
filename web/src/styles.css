@@ -176,3 +176,20 @@ a.card { text-decoration: none; transition: transform .12s, box-shadow .12s, bor
 .flow li + li::before { content: '→ '; color: var(--muted); }
 @keyframes lit { 0%, 8% { background: var(--code-bg); color: var(--muted); border-color: var(--border); transform: none; } 14%, 55% { background: color-mix(in srgb, var(--accent) 14%, #fff); color: var(--accent); border-color: var(--accent); transform: translateY(-2px); } 70%, 100% { background: var(--code-bg); color: var(--muted); border-color: var(--border); transform: none; } }
 @media (prefers-reduced-motion: reduce) { .flow li { animation: none; } }
+
+/* ---- motion (every effect is switched off for visitors who prefer reduced motion) ---- */
+.page-enter { animation: pageIn .35s ease both; }
+@keyframes pageIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; } .reveal.in { opacity: 1; transform: none; }
+.stats li { transition: transform .15s, box-shadow .15s; } .stats li:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.bar span { transform-origin: left center; animation: grow .9s cubic-bezier(.2, .8, .2, 1) both; } @keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.timeline .stage { animation: pop .5s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i, 0) * .14s); } @keyframes pop2 { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
+.timeline .stage { animation-name: pop2; }
+.schema-canvas, .graph-canvas { animation: pageIn .5s ease both; }
+.skeleton-stack { display: grid; gap: 12px; } .skeleton { border-radius: 12px; background: linear-gradient(100deg, #eceff5 30%, #f7f9fc 50%, #eceff5 70%); background-size: 300% 100%; animation: shimmer 1.4s linear infinite; }
+.skeleton.h-lg { height: 120px; } .skeleton.h-md { height: 72px; } .skeleton.h-sm { height: 40px; width: 60%; } @keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+.item { animation: pageIn .4s ease both; }
+@media (prefers-reduced-motion: reduce) {
+  .page-enter, .bar span, .timeline .stage, .schema-canvas, .graph-canvas, .item, .skeleton { animation: none !important; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+}

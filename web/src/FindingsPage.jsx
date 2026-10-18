@@ -19,7 +19,7 @@ function Timeline({ history }) {
   return (
     <ol className="timeline" aria-label="Stage history">
       {history.map((h, i) => (
-        <li key={i} className={`stage st-${h.stage}`}><strong>{h.stage}</strong><span>{h.from === h.to ? h.from : `${h.from} → ${h.to}`}</span>{h.overlap && <small>overlap in source</small>}</li>
+        <li key={i} className={`stage st-${h.stage}`} style={{ '--i': i }}><strong>{h.stage}</strong><span>{h.from === h.to ? h.from : `${h.from} → ${h.to}`}</span>{h.overlap && <small>overlap in source</small>}</li>
       ))}
     </ol>
   )
@@ -96,7 +96,7 @@ function Detail({ id, replay }) {
   }, [])
 
   if (err) return <div className="panel error" role="alert">{err}</div>
-  if (!d) return <div className="panel muted">Loading the evidence trace…</div>
+  if (!d) return <div className="skeleton-stack" aria-busy="true" aria-label="Loading the evidence trace"><div className="skeleton h-lg" /><div className="skeleton h-md" /><div className="skeleton h-md" /><div className="skeleton h-sm" /></div>
   const s = d.sections
   const canFix = s.finding.severity !== 'review'
   return (
@@ -192,7 +192,7 @@ export default function FindingsPage({ selectedId, replay }) {
           {list && <span className="muted">{list.total} items</span>}
         </div>
         {err && <div className="panel error" role="alert">{err}</div>}
-        {!list && !err && <div className="panel muted">Loading…</div>}
+        {!list && !err && <div className="skeleton-stack" aria-busy="true" aria-label="Loading findings"><div className="skeleton h-md" /><div className="skeleton h-md" /><div className="skeleton h-md" /></div>}
         {list?.findings.length === 0 && <div className="panel muted">Nothing matches.</div>}
         <ul>{list?.findings.map((f) => (
           <li key={f.id}><a href={`#/findings/${f.id}`} className={f.id === selectedId ? 'item active' : 'item'}>

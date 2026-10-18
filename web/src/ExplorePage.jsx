@@ -18,6 +18,9 @@ const ENTITIES = [
   { label: 'CodePath', key: 'kubernetes:pkg/controller/job', hint: 'a folder and its owners over time' },
 ]
 const LABELS = ['FeatureGate', 'SIG', 'KEP', 'CodePath', 'Team', 'Person', 'DocPage', 'Release']
+// An example key for each type: it fills the key box when the type changes (so a gate name is never left under "Release") and is the placeholder when the box is empty.
+const EXAMPLE_KEY = { FeatureGate: 'LocalStorageCapacityIsolation', SIG: 'sig-storage', KEP: 'sig-storage/361-local-ephemeral-storage-isolation', CodePath: 'kubernetes:pkg/controller/job',
+  Team: 'kubernetes:sig-apps-approvers', Person: 'liggitt', DocPage: 'content/en/docs/concepts/policy/resource-quotas.md', Release: '1.30' }
 const ROLE = { APPROVER_OF: 'approver', REVIEWER_OF: 'reviewer', EMERITUS_APPROVER_OF: 'emeritus approver' }
 
 function Src({ url }) { return url ? <a className="src" href={url} target="_blank" rel="noreferrer">source ↗</a> : null }
@@ -110,7 +113,7 @@ function EntityPanel({ params }) {
     try {
       const e = await api.entity(l, k, n)
       setGraph({ ...entityGraph(e, Math.max(190, e.neighbors.length * 11)), stamp: `${l}:${k}:${n}` })  // a bigger ring for more neighbours, so labels do not overlap
-    } catch (e) { setErr(e.message); setGraph(null) } finally { setBusy(false) }
+    } catch (e) { setErr(`${e.message}. Check that the Type matches what you typed (for example a feature gate name needs the type FeatureGate).`); setGraph(null) } finally { setBusy(false) }
   }
   useEffect(() => { load(params.get('label') || label, params.get('key') || key) }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -121,8 +124,8 @@ function EntityPanel({ params }) {
       <p className="muted small">One entity and its neighbours, a readable slice instead of the whole graph. Tap a node to expand it.</p>
       <div className="chips">{ENTITIES.map((e) => <button key={e.key} className={e.key === key ? 'chip on' : 'chip'} title={e.hint} onClick={() => { setLabel(e.label); setKey(e.key); load(e.label, e.key) }}>{e.label}: {e.key.split('/').pop().slice(0, 28)}</button>)}</div>
       <form className="row" onSubmit={(e) => { e.preventDefault(); load() }}>
-        <label>Type <select value={label} onChange={(e) => setLabel(e.target.value)}>{LABELS.map((l) => <option key={l}>{l}</option>)}</select></label>
-        <label>Key <input value={key} onChange={(e) => setKey(e.target.value)} aria-label="Key" /></label>
+        <label>Type <select value={label} onChange={(e) => { setLabel(e.target.value); setKey(EXAMPLE_KEY[e.target.value] || ''); setErr(null) }}>{LABELS.map((l) => <option key={l}>{l}</option>)}</select></label>
+        <label>Key <input value={key} placeholder={EXAMPLE_KEY[label]} onChange={(e) => { setKey(e.target.value); setErr(null) }} aria-label="Key" /></label>
         <button className="btn" disabled={busy}>{busy ? 'Loading…' : 'Show'}</button>
       </form>
       {err && <p className="note" role="alert">{err}</p>}

@@ -40,13 +40,27 @@ const PAGES = [
   ['about', 'About the data', 'Sources, commit hashes, counts, how the detector works and what it cannot do.'],
 ]
 
+/** Sections fade up as they scroll into view. If the observer is unavailable, or after a short delay, everything is shown, so content can never stay hidden. */
+function useReveal(root) {
+  useEffect(() => {
+    const els = root.current ? [...root.current.querySelectorAll('.reveal')] : []
+    if (!els.length || typeof IntersectionObserver === 'undefined') { els.forEach((e) => e.classList.add('in')); return undefined }
+    const io = new IntersectionObserver((entries) => entries.forEach((en) => { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target) } }), { threshold: 0.12 })
+    els.forEach((e) => io.observe(e))
+    const fallback = setTimeout(() => els.forEach((e) => e.classList.add('in')), 2500)
+    return () => { io.disconnect(); clearTimeout(fallback) }
+  }, [root])
+}
+
 export default function HomePage() {
+  const rootRef = useRef(null)
+  useReveal(rootRef)
   const [about, setAbout] = useState(null)
   const [list, setList] = useState(null)
   useEffect(() => { api.about().then(setAbout).catch(() => {}); api.findings({}).then(setList).catch(() => {}) }, [])
   const c = about?.counts || {}
   return (
-    <div className="home">
+    <div className="home" ref={rootRef}>
       <section className="hero">
         <span className="eyebrow">Built for the FalkorDB Graph Hacks · Company Brain</span>
         <h1>A company brain that knows when its knowledge is out of date, and proves every answer.</h1>
@@ -58,7 +72,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <ul className="stats big" aria-label="What is in the graph">
+      <ul className="stats big reveal" aria-label="What is in the graph">
         <li><strong><CountUp value={list?.counts?.stale_stage} /></strong><span>docs claims proven out of date</span></li>
         <li><strong><CountUp value={about?.detector?.['claims checked']} /></strong><span>docs badges checked</span></li>
         <li><strong><CountUp value={c.KEP} /></strong><span>design decisions (KEPs)</span></li>
@@ -66,7 +80,7 @@ export default function HomePage() {
         <li><strong><CountUp value={c.Person} /></strong><span>people</span></li>
       </ul>
 
-      <section className="split-2">
+      <section className="split-2 reveal">
         <div>
           <h2>The problem</h2>
           <p>Kubernetes docs carry badges such as <em>“Alpha since v1.8”</em>. They are typed by hand, so when a feature graduates the badge is easy to forget. Readers then trust a label that stopped being true years ago, and nobody is told.</p>
@@ -86,22 +100,22 @@ export default function HomePage() {
         </aside>
       </section>
 
-      <section>
+      <section className="reveal">
         <h2>How it works</h2>
         <ol className="steps">{STEPS.map(([n, t, d]) => <li key={n}><span className="num">{n}</span><h3>{t}</h3><p>{d}</p></li>)}</ol>
       </section>
 
-      <section>
+      <section className="reveal">
         <h2>Why a graph</h2>
         <div className="cards">{WHY.map(([t, d]) => <article key={t} className="card"><h3>{t}</h3><p>{d}</p></article>)}</div>
       </section>
 
-      <section>
+      <section className="reveal">
         <h2>Where to go</h2>
         <div className="cards three">{PAGES.map(([k, t, d]) => <a key={k} className="card link" href={`#/${k}`}><h3>{t} <span aria-hidden="true">→</span></h3><p>{d}</p></a>)}</div>
       </section>
 
-      <section className="honest">
+      <section className="honest reveal">
         <h2>What it is not</h2>
         <ul>
           <li>It is <strong>not an official Kubernetes tool</strong>. It reads public data only: the Kubernetes repositories on GitHub. No private or personal data, and email addresses are removed.</li>

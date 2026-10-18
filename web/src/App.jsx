@@ -42,8 +42,8 @@ export default function App() {
         </div>
       </header>
       {waking && <div className="panel note" role="status">The server is waking up (a free host sleeps when idle and needs about a minute). This page retries by itself.</div>}
-      <main>
-        {route.page === 'ask' ? <ChatPage llmConfigured={health?.llm_configured} />
+      <main key={route.page} className="page-enter">
+        {route.page === 'ask' ? <ChatPage llmConfigured={health?.llm_configured} initialQuestion={route.params.get('q')} initialContrast={route.params.get('contrast') === '1'} />
           : route.page === 'explore' ? <ExplorePage params={route.params} />
           : route.page === 'changes' ? <ChangesPage />
           : route.page === 'insights' ? <InsightsPage />

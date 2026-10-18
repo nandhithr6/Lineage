@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from './api.js'
 import PageIntro from './PageIntro.jsx'
 import { markdownBlocks, splitCitations } from './graph.js'
@@ -85,12 +85,12 @@ function Answer({ msg, onCite }) {
   return <div className="answer"><Rich text={msg.text} known={known} onCite={onCite} /></div>
 }
 
-export default function ChatPage({ llmConfigured }) {
+export default function ChatPage({ llmConfigured, initialQuestion = null, initialContrast = false }) {
   const [msgs, setMsgs] = useState([])
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(null)
-  const [contrast, setContrast] = useState(false)
+  const [contrast, setContrast] = useState(initialContrast)
   // The memory session id is kept in this browser, so a returning visitor still has their saved notes (the server keeps notes per session id). Falls back to a fresh id if storage is blocked.
   const session = useRef(null)
   if (session.current === null) {
@@ -124,6 +124,8 @@ export default function ChatPage({ llmConfigured }) {
   async function forget(id, i) {
     try { await api.forgetNote(id, session.current); setMsgs((all) => all.map((x, j) => (j === i ? { ...x, memory: (x.memory || []).filter((n) => n.id !== id) } : x))) } catch { /* already gone */ }
   }
+  const asked = useRef(false)
+  useEffect(() => { if (initialQuestion && !asked.current) { asked.current = true; send(initialQuestion) } }, [])  // eslint-disable-line react-hooks/exhaustive-deps
   const last = [...msgs].reverse().find((m) => m.role === 'assistant')
   const evidence = open && last?.citations.find((c) => c.id === open)
 
