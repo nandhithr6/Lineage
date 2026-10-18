@@ -120,6 +120,21 @@ Also: session-private memory that is re-verified against the graph before use, a
 The owner also reviewed the saved demo answers: 3 of 7 were judged supported, 4 not. Those were regenerated and need re-review ([docs/VERIFY.md](docs/VERIFY.md)). The optional embedding signal for linking stays **off**: the owner found 3 of its 4 new links correct.
 Full results and everything that makes them softer than they look: [eval/README.md](eval/README.md), [eval/results/drift_report.md](eval/results/drift_report.md).
 
+## Hackathon checklist: where to find each requirement
+
+| Requirement | Where |
+|---|---|
+| Public repository | this repository |
+| README with setup and the graph data model | [Run it](#run-it) and [Graph data model](#graph-data-model) |
+| The Cypher queries and graph algorithms the product depends on | [How FalkorDB is used](#how-falkordb-is-used-take-it-out-and-nothing-works) and [docs/queries.md](docs/queries.md) |
+| Live deployment, or complete local setup | <https://lineage-faov.onrender.com/> and `docker compose up --build` |
+| Demo video | linked at the top |
+| Tracks entered | **Track 3 (Company Brain)** and **Track 1 (Agents That Act on Connected Data)** |
+| AI use disclosed; we can explain the work | [AI assistance disclosure](#ai-assistance-disclosure), [DECISIONS.md](DECISIONS.md) |
+
+**Track 3, bullet by bullet:** docs, tickets and chats in one graph (docs and tickets yes: 207 pages and 651 linked issues; **chats only as review events**, meaning who reviewed or approved a pull request and when, not message text); who owns what and who knows what (OWNERS history plus real review activity); decisions traced to their source (feature gate, design document, pull request); knowledge kept current (the *What changed* page compares snapshots); answers with sources (every claim cites evidence with a commit-pinned link).
+**Track 1:** multi-hop reasoning, graph queries and algorithms as agent tools (PageRank, shortest paths, vector search), the same tools exposed over MCP, an action (a drafted fix with reviewers), and an explainable trace with a replay.
+
 ## Limitations
 
 - Linking a badge to its feature gate is inferred, so each link has a confidence; low-confidence links are shown as "possible drift", never as findings. Only 73 of 186 hard-coded labels link confidently.
@@ -144,7 +159,11 @@ Copyright belongs to The Kubernetes Authors. Snapshot commits: [snapshot/manifes
 
 Built with **Claude Code (Anthropic)**, which wrote most of the code, tests and documentation under the team's direction, working from the brief in [CLAUDE.md](CLAUDE.md). Every technical choice is logged one line at a time in [DECISIONS.md](DECISIONS.md), including mistakes the AI made and how they were found.
 
-**What the team did:** *[Nan and Abiram: write your own part here in your own words: the problem choice and scope, decisions you made, the checks you did yourselves (the human verification above), the held-out questions you wrote, and what you can explain end to end. The rules require meaningful human contribution; this section must not stay a placeholder.]*
+**What the team did:** *(drafted from the repository history and the decisions recorded in this project; the team confirms and edits it)*
+- **Nan (nandhithr6, project owner):** set the project, scope and tracks (the brief in [CLAUDE.md](CLAUDE.md): Kubernetes as a company, the drift-detection workflow, FalkorDB at the centre). Made the calls recorded in [DECISIONS.md](DECISIONS.md): Python and a hand-written agent loop instead of a framework, dropping Hugging Face Spaces because Docker Spaces are paid, deploying on Render's free tier with a one-command local setup as the baseline, keeping the embedding signal off, and requiring that the independent held-out questions be written by people, not by the AI. Deployed the Render service. Did the human verification: 21 of the 73 confident links (20 correct, 1 wrong), all 3 findings (3 true), the 4 new embedding links (3 of 4 correct, so the signal stays off) and the 7 saved Ask answers (3 supported, 4 not supported, which is why the demo shows the hero through the Findings page).
+- **Abiram (Abiram116):** added the independent held-out question set (committed before any system saw it, with the AI told not to read it) and committed and pushed the final stretch of work, including the UI redesign, the independent evaluation and the README.
+- **Claude Code (AI):** wrote the code, tests and drafts under that direction, and checked its own work against the data (see the disclosure above).
+- *[Team: add in your own words what you can explain end to end (for example the graph model, one Cypher query and why FalkorDB is central), and correct anything above that is wrong.]*
 
 ## Repository layout
 

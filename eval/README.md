@@ -86,7 +86,9 @@ A model's opinion is not ground truth: `results/independent_review.md` lists eve
 What the judge's reasons say about Lineage's seven misses (reported, not fixed: the set was run once and is not edited, and the system was not changed in response):
 two **unanswerable** questions were answered instead of refused (ind-14, ind-15), one question about a label that is looked up from the gate file (so it can never go stale) was answered as if it could (ind-11), one question asked for the one approver listed directly and the answer listed several (ind-01),
 one design-decision question missed a related KEP (ind-09), and two expertise questions got no usable answer (ind-03, ind-04). This is much lower than the 97% on our own draft questions, which is the reason to trust an independent set over a draft one.
-Not yet done: a person checking the judge's verdicts.
+**AI second opinion (Claude, 2026-10-18; this is NOT the human check).** After the run, Claude read all 45 verdicts against the gold answers in `results/independent_review.md`. It agreed with 44. The one it would call borderline is Lineage on ind-15: the answer only listed the KEP's two approvers and did not claim who approved the alpha milestone, so it invented nothing, but it also did not say "insufficient evidence", which the gold answer requires; the judge scored it wrong and Claude thinks that is defensible but strict.
+Two of Lineage's misses are tool gaps, not wording problems: there is no per-pull-request lookup (ind-03, ind-04), and the KEP tool did not surface the see-also link of KEP-753 (ind-09). Changing the system now would make these numbers describe a different system, so neither was fixed.
+Still to do: a person reading the sheet and disagreeing where they disagree. Any change to a verdict should be added here with the reason, never edited silently.
 
 
 ## Lineage re-run after name resolution, outcomes, the validator and path_between (2026-10-17)
