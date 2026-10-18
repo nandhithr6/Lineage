@@ -88,7 +88,30 @@ two **unanswerable** questions were answered instead of refused (ind-14, ind-15)
 one design-decision question missed a related KEP (ind-09), and two expertise questions got no usable answer (ind-03, ind-04). This is much lower than the 97% on our own draft questions, which is the reason to trust an independent set over a draft one.
 **AI second opinion (Claude, 2026-10-18; this is NOT the human check).** After the run, Claude read all 45 verdicts against the gold answers in `results/independent_review.md`. It agreed with 44. The one it would call borderline is Lineage on ind-15: the answer only listed the KEP's two approvers and did not claim who approved the alpha milestone, so it invented nothing, but it also did not say "insufficient evidence", which the gold answer requires; the judge scored it wrong and Claude thinks that is defensible but strict.
 Two of Lineage's misses are tool gaps, not wording problems: there is no per-pull-request lookup (ind-03, ind-04), and the KEP tool did not surface the see-also link of KEP-753 (ind-09). Changing the system now would make these numbers describe a different system, so neither was fixed.
-Still to do: a person reading the sheet and disagreeing where they disagree. Any change to a verdict should be added here with the reason, never edited silently.
+Still to do: a person reading the sheet and disagreeing where they disagree.
+
+## After the fixes (2026-10-18): the same 15 questions, so NOT a held-out result
+
+The misses above pointed at real gaps, so we fixed the gaps (not the questions) and re-ran Lineage on the same questions. Three rounds, all reported, because every round came after seeing the previous round's misses:
+
+| Run | Lineage correct | Source link on a gold path | Median latency |
+|---|---|---|---|
+| Frozen run (the held-out result, unchanged) | **8 / 15** | 13 / 15 | 14.9 s |
+| After round 1 | 12 / 15 | 14 / 15 | 11.4 s |
+| After round 2 | 14 / 15 (one question got worse, see below) | 14 / 15 | 10.1 s |
+| After round 3 (final) | **14 / 15** | 15 / 15 | 10.2 s |
+
+What was fixed, each as a general capability with its own test, none keyed to a question:
+1. **A new `pr_reviews` tool** (one pull request: author, reviewers, who approved, or "no formal review is recorded", and "not loaded" when the PR is outside the loaded data, never reported as having no reviews).
+2. **KEP references survive a renamed folder** (`resolve_refs`): a see-also link to `4438-sidecar-restart-termination` was dropped because that folder is now `4438-container-restart-termination`; it now resolves by team and KEP number when exactly one KEP matches, and the rename is recorded. 8 KEPs gained links, all of this kind.
+3. **A KEP written by number ("KEP-753") now reaches the tool as its real id**: the resolver found it, but the tool then searched ids for the text "KEP-753" and reported it missing.
+4. **A removed gate says its removal release is not recorded**, and **a looked-up label says it can never be out of date**, in the evidence itself.
+5. **Prompt rules**: say whether an owner is listed directly or through an alias; answer exactly what was asked and say "not recorded" for a specific fact the evidence does not hold.
+6. **A new `team_members` tool** (the people in an OWNERS alias, now or as of a release), added after round 2 because the agent was hunting for alias members with free-text search and one multi-hop question that had passed started failing (4 of 4 reruns); the cause was a tool-selection loop, not wording.
+
+Reading these numbers honestly: this is practice on a test we have seen, so it shows the gaps were real and closed, not how it would score on new questions. A single run varies by about one question (ind-11 passed in round 2 and failed in round 3 for the same reason it was a borderline call). One miss remains (ind-11: the answer says a looked-up label can never be out of date, which is the point, but omits the extra fact that the gate is stable since 1.33).
+The clean way to measure the improved system is a **fresh set of questions, written by people who have not seen these, run once**. Files: `results/independent_answers_after_fixes*.jsonl`, `results/independent_scores_after_fixes*.json`, `results/independent_review_after_fixes*.md`.
+ Any change to a verdict should be added here with the reason, never edited silently.
 
 
 ## Lineage re-run after name resolution, outcomes, the validator and path_between (2026-10-17)

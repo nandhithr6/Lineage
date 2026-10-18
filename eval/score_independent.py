@@ -10,6 +10,7 @@ Run: .venv/bin/python -m eval.score_independent
 """
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import statistics
@@ -56,8 +57,14 @@ def judge(llm, q: dict, answer: str) -> dict:
 
 
 def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--answers", default=str(ANSWERS))
+    ap.add_argument("--out", default=str(OUT))
+    ap.add_argument("--sheet", default=str(SHEET))
+    args = ap.parse_args()
+    out_path, sheet_path = Path(args.out), Path(args.sheet)
     gold = {q["id"]: q for q in read_jsonl(GOLD)}
-    rows = read_jsonl(ANSWERS)
+    rows = read_jsonl(Path(args.answers))
     llm = build_llm(load_settings(), fallback=False)
     scored = []
     for r in rows:
@@ -75,7 +82,7 @@ def main() -> None:
         summary[system] = {"n": len(rs), "correct": sum(s["correct"] for s in rs), "accuracy": round(sum(s["correct"] for s in rs) / len(rs), 3),
                            "source_ok": round(sum(s["source_ok"] for s in rs) / len(rs), 3), "median_latency_s": round(statistics.median(s["latency"] for s in rs if s["latency"]), 1),
                            "by_category": {c: f"{sum(v)}/{len(v)}" for c, v in sorted(by_cat.items())}}
-    OUT.write_text(json.dumps({"status": "scored by a language-model judge; not yet human-checked", "summary": summary, "rows": scored}, indent=1))
+    out_path.write_text(json.dumps({"status": "scored by a language-model judge; not yet human-checked", "summary": summary, "rows": scored}, indent=1))
     ans = {(r["id"], r["system"]): r for r in rows}
     lines = ["# Independent held-out set: review sheet", "", "Judge verdicts for people to check. Tick the ones you disagree with and tell the team; do not edit the questions or gold answers.", ""]
     for qid, q in gold.items():
@@ -84,7 +91,7 @@ def main() -> None:
             lines += [f"- **{s['system']}** judge: {'CORRECT' if s['correct'] else 'WRONG'} (source cited: {s['source_ok']}) - {s['reason']}",
                       f"  > {ans[(qid, s['system'])].get('answer', '').strip()[:600].replace(chr(10), ' ')}"]
         lines.append("")
-    SHEET.write_text("\n".join(lines))
+    sheet_path.write_text("\n".join(lines))
     print(json.dumps(summary, indent=1))
 
 

@@ -4,9 +4,12 @@ This script only COLLECTS answers: the gold answers are free text, so no pass/fa
 read by code only; its hash must match eval/results/heldout_independent_freeze.json. Rows are appended to eval/results/independent_answers.jsonl, so a rate-limited run resumes.
 
 Run: .venv/bin/python -m eval.run_independent
+After fixes: .venv/bin/python -m eval.run_independent --out eval/results/independent_answers_after_fixes.jsonl --systems lineage
+  That second run uses the SAME questions after the system was changed in response to its misses, so it is NOT a held-out result and is reported separately and labelled as such.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -28,6 +31,11 @@ DROP = {"correct", "source_ok", "source_ok_strict", "refused"}  # computed again
 
 
 def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", default=str(OUT))
+    ap.add_argument("--systems", default="lineage,rag_tfidf,rag_vector")
+    args = ap.parse_args()
+    out_path = Path(args.out)
     rec = json.loads(FREEZE.read_text())
     got = hashlib.sha256(GOLD.read_bytes()).hexdigest()
     if got != rec["sha256"]:
@@ -37,8 +45,14 @@ def main() -> None:
     llm = build_llm(s, fallback=False)
     if [p.name for p in llm.providers] != ["gemini"]:
         raise SystemExit("The fair comparison needs Gemini only (set GEMINI_API_KEY and GEMINI_MODEL).")
-    systems = {"lineage": None, "rag_tfidf": Retriever(build_corpus()), "rag_vector": FalkorRetriever(tools.g, LocalEmbedder())}
-    done = {(r["id"], r["system"]) for r in read_jsonl(OUT)} if OUT.exists() else set()
+    wanted = set(args.systems.split(","))
+    systems = {"lineage": None}
+    if "rag_tfidf" in wanted:
+        systems["rag_tfidf"] = Retriever(build_corpus())
+    if "rag_vector" in wanted:
+        systems["rag_vector"] = FalkorRetriever(tools.g, LocalEmbedder())
+    systems = {k: v for k, v in systems.items() if k in wanted}
+    done = {(r["id"], r["system"]) for r in read_jsonl(out_path)} if out_path.exists() else set()
     for q in read_jsonl(GOLD):
         shim = {"id": q["id"], "category": q["category"], "question": q["question"], "checks": [], "sources": [], "oracle_tool": None}  # no scoring here
         for name, retriever in systems.items():
@@ -46,7 +60,7 @@ def main() -> None:
                 continue
             r = answer_lineage(shim, llm, tools) if name == "lineage" else answer_rag(shim, llm, retriever)
             row = {"id": q["id"], "category": q["category"], "system": name, **{k: v for k, v in r.items() if k not in DROP}}
-            with OUT.open("a") as f:
+            with out_path.open("a") as f:
                 f.write(json.dumps(row, default=str) + "\n")
             print(f"{q['id']:8s} {name:10s} status={row['status']:<22s} {row['latency']:5.1f}s" + (f"  ERROR {row['error'][:60]}" if row.get("error") else ""), flush=True)
 

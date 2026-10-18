@@ -1,0 +1,173 @@
+{
+ "status": "scored by a language-model judge; not yet human-checked",
+ "summary": {
+  "lineage": {
+   "n": 15,
+   "correct": 12,
+   "accuracy": 0.8,
+   "source_ok": 0.933,
+   "median_latency_s": 11.4,
+   "by_category": {
+    "decision_lineage": "1/2",
+    "docs_drift": "1/2",
+    "expertise": "2/2",
+    "multi_hop": "2/2",
+    "ownership": "2/2",
+    "time_travel": "3/3",
+    "unanswerable": "1/2"
+   }
+  }
+ },
+ "rows": [
+  {
+   "id": "ind-01",
+   "category": "ownership",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies both the individual approver and the emeritus approver as required.",
+   "source_ok": true,
+   "latency": 6.537195371987764,
+   "status": "ok"
+  },
+  {
+   "id": "ind-02",
+   "category": "ownership",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies the alias and lists all six required individuals.",
+   "source_ok": true,
+   "latency": 11.393349949998083,
+   "status": "ok"
+  },
+  {
+   "id": "ind-03",
+   "category": "expertise",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies the user who submitted the formal review.",
+   "source_ok": true,
+   "latency": 8.666658907008241,
+   "status": "ok"
+  },
+  {
+   "id": "ind-04",
+   "category": "expertise",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly states that there are no formal pull-request reviews for the specified PR.",
+   "source_ok": true,
+   "latency": 9.563661168009276,
+   "status": "ok"
+  },
+  {
+   "id": "ind-05",
+   "category": "time_travel",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies that the SidecarContainers feature gate was in the beta stage during Kubernetes 1.30.",
+   "source_ok": true,
+   "latency": 11.361629551000078,
+   "status": "ok"
+  },
+  {
+   "id": "ind-06",
+   "category": "time_travel",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies that the CronJobTimeZone feature gate was in the beta stage during Kubernetes 1.25.",
+   "source_ok": true,
+   "latency": 9.483879089995753,
+   "status": "ok"
+  },
+  {
+   "id": "ind-07",
+   "category": "time_travel",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies that the ReadWriteOncePod feature gate was in the beta stage during Kubernetes 1.27.",
+   "source_ok": true,
+   "latency": 11.951713346003089,
+   "status": "ok"
+  },
+  {
+   "id": "ind-08",
+   "category": "decision_lineage",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies KEP-753, SIG Node, and both required approvers.",
+   "source_ok": true,
+   "latency": 7.41393080499256,
+   "status": "ok"
+  },
+  {
+   "id": "ind-09",
+   "category": "decision_lineage",
+   "system": "lineage",
+   "correct": false,
+   "reason": "The answer fails to identify KEP-4438, which is explicitly listed in the KEP-753 documentation.",
+   "source_ok": true,
+   "latency": 32.49088757899881,
+   "status": "ok"
+  },
+  {
+   "id": "ind-10",
+   "category": "docs_drift",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly confirms the consistency of the label with the feature gate's history and accurately identifies the transition to stable in v1.29.",
+   "source_ok": true,
+   "latency": 16.62249641100061,
+   "status": "ok"
+  },
+  {
+   "id": "ind-11",
+   "category": "docs_drift",
+   "system": "lineage",
+   "correct": false,
+   "reason": "The answer fails to mention that the gate is stable (locked) since 1.33 as required by the reference answer.",
+   "source_ok": true,
+   "latency": 8.382308401996852,
+   "status": "ok"
+  },
+  {
+   "id": "ind-12",
+   "category": "multi_hop",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies the three individuals who are both members of the alias and chairs of SIG Apps.",
+   "source_ok": true,
+   "latency": 15.045822737010894,
+   "status": "ok"
+  },
+  {
+   "id": "ind-13",
+   "category": "multi_hop",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies both approvers and correctly determines that only mrunalp is in the sig-node-approvers alias.",
+   "source_ok": true,
+   "latency": 37.38647125600255,
+   "status": "ok"
+  },
+  {
+   "id": "ind-14",
+   "category": "unanswerable",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies that the information is not available in the gate file.",
+   "source_ok": true,
+   "latency": 9.057116960000712,
+   "status": "ok"
+  },
+  {
+   "id": "ind-15",
+   "category": "unanswerable",
+   "system": "lineage",
+   "correct": false,
+   "reason": "The answer claims the KEP does not exist rather than stating there is insufficient evidence to identify a specific milestone approver.",
+   "source_ok": false,
+   "latency": 14.867770202996326,
+   "status": "ok"
+  }
+ ]
+}
