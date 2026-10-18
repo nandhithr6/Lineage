@@ -1,5 +1,7 @@
 # Demo video
 
+**Uploaded:** https://drive.google.com/file/d/1fn5dFY0kjds6lYaK5ZafvDz_pvwJAt41/view?usp=sharing
+
 ## The main video: a motion-graphics explainer
 
 The main demo video is a motion-graphics explainer built from the real product screenshots and diagrams (the production files are kept locally and are not part of this repository). It is about 3 minutes, every slide carries a caption so it works **with the sound off**, and it has a narration track (Gemini speech: natural, but still synthetic, so recording your own voice over the captions is the upgrade if you want one). Judges mostly decide from the video first, then the README, so it stands alone: the problem, the idea, the proof, the checks, FalkorDB, the honest numbers, and where to try it.

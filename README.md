@@ -1,7 +1,7 @@
 <p align="center"><img src="docs/img/banner.png" alt="Lineage: a company brain that knows when its knowledge is out of date, and proves every answer"></p>
 
 <p align="center">
-<b><a href="https://lineage-faov.onrender.com/">▶ Live demo</a></b> &nbsp;·&nbsp; <b>Demo video:</b> <i>(link added at submission)</i> &nbsp;·&nbsp; <b><a href="docs/BLOG_POST.md">Blog post</a></b> &nbsp;·&nbsp; <b><a href="docs/EXPLAIN_IT.md">Explain it in 10 minutes</a></b>
+<b><a href="https://lineage-faov.onrender.com/">▶ Live demo</a></b> &nbsp;·&nbsp; <b><a href="https://drive.google.com/file/d/1fn5dFY0kjds6lYaK5ZafvDz_pvwJAt41/view?usp=sharing">🎬 Demo video (2:39)</a></b> &nbsp;·&nbsp; <b><a href="docs/BLOG_POST.md">Blog post</a></b> &nbsp;·&nbsp; <b><a href="docs/EXPLAIN_IT.md">Explain it in 10 minutes</a></b>
 </p>
 
 We treat the Kubernetes open-source project as a ~3,000-person company: an org chart, ownership maps, design decisions, release history and documentation that quietly drifts.
@@ -106,7 +106,7 @@ CALL db.idx.vector.queryNodes('Chunk', 'embedding', $k, vecf32($v)) YIELD node, 
 ![The graph data model](docs/img/graph-model.svg)
 
 ![The lineage graph shown in FalkorDB's own Browser: thousands of nodes and relationships](docs/img/falkordb-browser.png)
-*The same graph in FalkorDB's own Browser (an earlier build). Too dense to read, so the Explore page draws it by type.*
+*Our graph in FalkorDB's own Browser (the full local build: 10,245 nodes, 36,956 relationships). Too dense to read, so the Explore page draws it by type.*
 
 ![Architecture](docs/img/architecture.svg)
 
@@ -147,7 +147,7 @@ Full results and everything that makes them softer than they look: [eval/README.
 | README with setup and the graph data model | [Run it](#run-it) and [Graph data model](#graph-data-model) |
 | The Cypher queries and graph algorithms the product depends on | [How FalkorDB is used](#how-falkordb-is-used-take-it-out-and-nothing-works) and [docs/queries.md](docs/queries.md) |
 | Live deployment, or complete local setup | <https://lineage-faov.onrender.com/> and `docker compose up --build` |
-| Demo video | linked at the top |
+| Demo video | [watch it (2:39)](https://drive.google.com/file/d/1fn5dFY0kjds6lYaK5ZafvDz_pvwJAt41/view?usp=sharing): the real app working, live |
 | Tracks entered | **Track 3 (Company Brain)** and **Track 1 (Agents That Act on Connected Data)** |
 | AI use disclosed; we can explain the work | [AI assistance disclosure](#ai-assistance-disclosure), [DECISIONS.md](DECISIONS.md) |
 

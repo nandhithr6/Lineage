@@ -69,6 +69,7 @@ export default function HomePage() {
           <a className="btn" href="#/findings">See the stale docs</a>
           <a className="btn ghost" href="#/ask">Ask a question</a>
           <a className="btn ghost" href="#/explore">Explore the graph</a>
+          <a className="btn ghost" href="https://drive.google.com/file/d/1fn5dFY0kjds6lYaK5ZafvDz_pvwJAt41/view?usp=sharing" target="_blank" rel="noreferrer">▶ Watch the demo</a>
         </div>
       </section>
 

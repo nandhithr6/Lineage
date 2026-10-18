@@ -5,7 +5,7 @@
 ### Building Lineage, a company brain on FalkorDB that notices when its own knowledge is out of date, and what an honest 8 out of 15 taught us
 
 *Built for the FalkorDB Graph Hacks, Track 3 (Company Brain) and Track 1 (Agents That Act on Connected Data).*
-*Live demo: https://lineage-faov.onrender.com/ · Code: https://github.com/nandhithr6/Lineage · 4-minute video: (add link)*
+*Live demo: https://lineage-faov.onrender.com/ · Code: https://github.com/nandhithr6/Lineage · Demo video: https://drive.google.com/file/d/1fn5dFY0kjds6lYaK5ZafvDz_pvwJAt41/view?usp=sharing*
 
 **The short version**
 
@@ -45,7 +45,7 @@ No single file holds that answer. It is a *path through relationships*, which is
 All of it lives in one FalkorDB graph: about 6,900 nodes and 30,000 relationships. That is 489 feature gates, 648 design documents, 453 docs badges, 3,074 pull requests and 651 tickets, and 1,225 people.
 
 ![FalkorDB's own Browser showing the lineage graph as a dense network of nodes and relationships](img/falkordb-browser.png)
-*This is our real graph in FalkorDB's own Browser (an earlier, smaller build, before we loaded the pull requests): thousands of nodes and ten thousand relationships. Impressive, and useless to read, which is why the app draws the graph by type.*
+*This is our real graph in FalkorDB's own Browser: 10,245 nodes and 36,956 relationships in the full local build (the hosted demo leaves out the text chunks and is about 6,900 and 30,000). Thousands of nodes and ten thousand relationships on screen is impressive and useless to read, which is why the app draws the graph by type.*
 
 ![The graph data model: nodes and the relationships between them](img/graph-model.png)
 *The data model. Colours match the Explore page in the app.*
