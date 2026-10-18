@@ -1,0 +1,9 @@
+{
+ "file": "eval/heldout_independent.jsonl",
+ "sha256": "522c53b973a1f41476ee7c9ad9c6bf426d211a93c79dd643129ab15649176d34",
+ "questions": 15,
+ "frozen_at": "2026-10-18",
+ "written_by": "Abiram (the team); Claude did not write or edit the questions or gold answers",
+ "disclosure": "Claude saw the first ~700 bytes of the file (question ind-01 and the start of ind-02) by accident through a head command while locating it, before the run. It did not read the rest and has not edited the file.",
+ "rules": "The set is run once per system. Questions and gold answers are never edited afterwards; a wrong gold answer is reported as wrong, not fixed. Gold answers are free text, so scoring is a separate step, disclosed in eval/README.md."
+}

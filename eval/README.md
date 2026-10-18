@@ -67,7 +67,26 @@ Reported as run: Lineage 30 of 30 answerable correct, source correct 83%, refusa
 Result (one run, `results/qa_llm_summary_vector.json`): accuracy **61.1% (22/36)**, source correct 52.8%, refusal 6/6, median latency 5.1 s; by category ownership 50%, expertise 83%, time travel 67%, decision lineage 100%, drift 50%, multi-hop 17%.
 For context from the earlier runs on the same questions: TF-IDF top-5 63.9%, Lineage 94.4% (the Lineage run predates `search_text`, the PR/issue data and the fixes of 2026-10-16, so it is not re-run here). Retrieval-only (no LLM): graph tools 92%, TF-IDF 75%, vector 67%.
 Reading: replacing keyword retrieval with embeddings in the same database did not help this question set (most questions need an exact gate name, path or handle), and neither retriever can traverse (multi-hop 0-17% against 83% for graph tools).
-The held-out set was NOT used for this run. The independent held-out set will be run once for Lineage, TF-IDF and vector retrieval when the owner provides it.
+The held-out set was NOT used for this run.
+
+## Independent held-out set (2026-10-18): run once, scored by a model judge
+
+`eval/heldout_independent.jsonl` (15 questions with free-text gold answers) was written by the team, not by Claude, and committed before anything ran; its hash is in `results/heldout_independent_freeze.json`.
+**Disclosure:** Claude saw the first ~700 bytes of the file (ind-01 and the start of ind-02) by accident, through a `head` command, before the run. It did not read the rest and never edited the file.
+Lineage, TF-IDF retrieval and vector retrieval (FalkorDB) were each run once with the same Gemini model (`eval/run_independent.py` -> `results/independent_answers.jsonl`; 45 answers, no provider errors).
+The gold answers are prose, so the answers were scored by a **language-model judge** (`eval/score_independent.py`: the same Gemini model, temperature 0, one answer at a time, the system name hidden) and a lenient source check (a cited link on the same repository path as a gold source).
+A model's opinion is not ground truth: `results/independent_review.md` lists every verdict with the gold answer so people can check it, and `results/independent_scores.json` has the numbers.
+
+| System | Correct (judge) | By category | Source link on a gold path | Median latency |
+|---|---|---|---|---|
+| **Lineage** | **8 / 15 (53%)** | time travel 3/3, multi-hop 2/2, ownership 1/2, decision lineage 1/2, docs drift 1/2, expertise 0/2, unanswerable 0/2 | 13 / 15 (the plain-retrieval answers carried no source link) | 14.9 s |
+| TF-IDF retrieval | 5 / 15 (33%) | | 0 / 15 | 4.5 s |
+| Vector retrieval | 6 / 15 (40%) | | 0 / 15 | 5.4 s |
+
+What the judge's reasons say about Lineage's seven misses (reported, not fixed: the set was run once and is not edited, and the system was not changed in response):
+two **unanswerable** questions were answered instead of refused (ind-14, ind-15), one question about a label that is looked up from the gate file (so it can never go stale) was answered as if it could (ind-11), one question asked for the one approver listed directly and the answer listed several (ind-01),
+one design-decision question missed a related KEP (ind-09), and two expertise questions got no usable answer (ind-03, ind-04). This is much lower than the 97% on our own draft questions, which is the reason to trust an independent set over a draft one.
+Not yet done: a person checking the judge's verdicts.
 
 
 ## Lineage re-run after name resolution, outcomes, the validator and path_between (2026-10-17)

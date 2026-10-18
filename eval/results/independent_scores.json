@@ -1,0 +1,505 @@
+{
+ "status": "scored by a language-model judge; not yet human-checked",
+ "summary": {
+  "lineage": {
+   "n": 15,
+   "correct": 8,
+   "accuracy": 0.533,
+   "source_ok": 0.867,
+   "median_latency_s": 14.9,
+   "by_category": {
+    "decision_lineage": "1/2",
+    "docs_drift": "1/2",
+    "expertise": "0/2",
+    "multi_hop": "2/2",
+    "ownership": "1/2",
+    "time_travel": "3/3",
+    "unanswerable": "0/2"
+   }
+  },
+  "rag_tfidf": {
+   "n": 15,
+   "correct": 5,
+   "accuracy": 0.333,
+   "source_ok": 0.0,
+   "median_latency_s": 4.5,
+   "by_category": {
+    "decision_lineage": "1/2",
+    "docs_drift": "1/2",
+    "expertise": "0/2",
+    "multi_hop": "0/2",
+    "ownership": "0/2",
+    "time_travel": "2/3",
+    "unanswerable": "1/2"
+   }
+  },
+  "rag_vector": {
+   "n": 15,
+   "correct": 6,
+   "accuracy": 0.4,
+   "source_ok": 0.0,
+   "median_latency_s": 5.4,
+   "by_category": {
+    "decision_lineage": "0/2",
+    "docs_drift": "1/2",
+    "expertise": "0/2",
+    "multi_hop": "0/2",
+    "ownership": "0/2",
+    "time_travel": "3/3",
+    "unanswerable": "2/2"
+   }
+  }
+ },
+ "rows": [
+  {
+   "id": "ind-01",
+   "category": "ownership",
+   "system": "lineage",
+   "correct": false,
+   "reason": "The answer lists multiple individuals as direct approvers instead of identifying mimowo as the specific individual listed alongside the alias.",
+   "source_ok": true,
+   "latency": 7.533365991999744,
+   "status": "ok"
+  },
+  {
+   "id": "ind-01",
+   "category": "ownership",
+   "system": "rag_tfidf",
+   "correct": false,
+   "reason": "The answer fails to identify mimowo as the current approver for the current state of the repository and provides conflicting information across different versions.",
+   "source_ok": false,
+   "latency": 9.553960859993822,
+   "status": "ok"
+  },
+  {
+   "id": "ind-01",
+   "category": "ownership",
+   "system": "rag_vector",
+   "correct": false,
+   "reason": "The answer failed to provide the required names of the approver and emeritus approver.",
+   "source_ok": false,
+   "latency": 19.169622627989156,
+   "status": "ok"
+  },
+  {
+   "id": "ind-02",
+   "category": "ownership",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies all six required individuals listed under the sig-storage-approvers alias for pkg/volume.",
+   "source_ok": true,
+   "latency": 7.172503182999208,
+   "status": "ok"
+  },
+  {
+   "id": "ind-02",
+   "category": "ownership",
+   "system": "rag_tfidf",
+   "correct": false,
+   "reason": "The answer failed to resolve the alias to the required list of six individuals as specified in the reference answer.",
+   "source_ok": false,
+   "latency": 4.165653743999428,
+   "status": "ok"
+  },
+  {
+   "id": "ind-02",
+   "category": "ownership",
+   "system": "rag_vector",
+   "correct": false,
+   "reason": "The answer failed to resolve the alias to the required list of six individuals as specified in the reference answer.",
+   "source_ok": false,
+   "latency": 4.68933930399362,
+   "status": "ok"
+  },
+  {
+   "id": "ind-03",
+   "category": "expertise",
+   "system": "lineage",
+   "correct": false,
+   "reason": "The answer failed to provide the required information which is available in the reference answer.",
+   "source_ok": false,
+   "latency": 39.503158291001455,
+   "status": "uncited"
+  },
+  {
+   "id": "ind-03",
+   "category": "expertise",
+   "system": "rag_tfidf",
+   "correct": false,
+   "reason": "The answer failed to identify the reviewer hashim21223445, which is present in the PR data.",
+   "source_ok": false,
+   "latency": 1.4944100879947655,
+   "status": "ok"
+  },
+  {
+   "id": "ind-03",
+   "category": "expertise",
+   "system": "rag_vector",
+   "correct": false,
+   "reason": "The answer failed to identify the reviewer hashim21223445, which is present in the PR data.",
+   "source_ok": false,
+   "latency": 5.014232639994589,
+   "status": "ok"
+  },
+  {
+   "id": "ind-04",
+   "category": "expertise",
+   "system": "lineage",
+   "correct": false,
+   "reason": "The answer failed to state that there were no formal reviews, instead claiming insufficient evidence.",
+   "source_ok": false,
+   "latency": 14.916655124005047,
+   "status": "uncited"
+  },
+  {
+   "id": "ind-04",
+   "category": "expertise",
+   "system": "rag_tfidf",
+   "correct": false,
+   "reason": "The answer failed to state that there were no formal reviews for the specified PR.",
+   "source_ok": false,
+   "latency": 5.690128328002174,
+   "status": "ok"
+  },
+  {
+   "id": "ind-04",
+   "category": "expertise",
+   "system": "rag_vector",
+   "correct": false,
+   "reason": "The answer failed to state that there were no formal reviews for the specified PR.",
+   "source_ok": false,
+   "latency": 16.497708271010197,
+   "status": "ok"
+  },
+  {
+   "id": "ind-05",
+   "category": "time_travel",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies that the SidecarContainers feature gate was in the beta stage during Kubernetes 1.30.",
+   "source_ok": true,
+   "latency": 16.049905981009942,
+   "status": "ok"
+  },
+  {
+   "id": "ind-05",
+   "category": "time_travel",
+   "system": "rag_tfidf",
+   "correct": false,
+   "reason": "The answer failed to identify that the feature gate was in Beta during Kubernetes 1.30.",
+   "source_ok": false,
+   "latency": 9.58919396600686,
+   "status": "ok"
+  },
+  {
+   "id": "ind-05",
+   "category": "time_travel",
+   "system": "rag_vector",
+   "correct": true,
+   "reason": "The answer correctly identifies that the SidecarContainers feature gate was in the beta stage during Kubernetes 1.30.",
+   "source_ok": false,
+   "latency": 5.761899118995643,
+   "status": "ok"
+  },
+  {
+   "id": "ind-06",
+   "category": "time_travel",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies that the CronJobTimeZone feature gate was in the beta stage during Kubernetes 1.25.",
+   "source_ok": true,
+   "latency": 10.250756577006541,
+   "status": "ok"
+  },
+  {
+   "id": "ind-06",
+   "category": "time_travel",
+   "system": "rag_tfidf",
+   "correct": true,
+   "reason": "The answer correctly identifies that the CronJobTimeZone feature gate was in the beta stage during Kubernetes 1.25.",
+   "source_ok": false,
+   "latency": 2.299639749995549,
+   "status": "ok"
+  },
+  {
+   "id": "ind-06",
+   "category": "time_travel",
+   "system": "rag_vector",
+   "correct": true,
+   "reason": "The answer correctly identifies that the CronJobTimeZone feature gate was in beta during Kubernetes 1.25.",
+   "source_ok": false,
+   "latency": 5.621555949008325,
+   "status": "ok"
+  },
+  {
+   "id": "ind-07",
+   "category": "time_travel",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies that the ReadWriteOncePod feature gate was in the beta stage during Kubernetes release 1.27.",
+   "source_ok": true,
+   "latency": 8.987358054000651,
+   "status": "ok"
+  },
+  {
+   "id": "ind-07",
+   "category": "time_travel",
+   "system": "rag_tfidf",
+   "correct": true,
+   "reason": "The answer correctly identifies that the ReadWriteOncePod feature gate was in beta during Kubernetes 1.27.",
+   "source_ok": false,
+   "latency": 4.677815433999058,
+   "status": "ok"
+  },
+  {
+   "id": "ind-07",
+   "category": "time_travel",
+   "system": "rag_vector",
+   "correct": true,
+   "reason": "The answer correctly identifies that the ReadWriteOncePod feature gate was in the beta stage during Kubernetes 1.27.",
+   "source_ok": false,
+   "latency": 4.63632860899088,
+   "status": "ok"
+  },
+  {
+   "id": "ind-08",
+   "category": "decision_lineage",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies KEP-753, SIG-Node, and both required approvers.",
+   "source_ok": true,
+   "latency": 10.437503841996659,
+   "status": "ok"
+  },
+  {
+   "id": "ind-08",
+   "category": "decision_lineage",
+   "system": "rag_tfidf",
+   "correct": true,
+   "reason": "The answer correctly identifies KEP-753, sig-node, and both required approvers.",
+   "source_ok": false,
+   "latency": 4.522116300009657,
+   "status": "ok"
+  },
+  {
+   "id": "ind-08",
+   "category": "decision_lineage",
+   "system": "rag_vector",
+   "correct": false,
+   "reason": "The answer failed to provide the required KEP number, SIG, and approvers.",
+   "source_ok": false,
+   "latency": 5.049527955008671,
+   "status": "ok"
+  },
+  {
+   "id": "ind-09",
+   "category": "decision_lineage",
+   "system": "lineage",
+   "correct": false,
+   "reason": "The answer failed to identify KEP-4438, which is explicitly listed in the KEP-753 documentation.",
+   "source_ok": true,
+   "latency": 29.449807080993196,
+   "status": "ok"
+  },
+  {
+   "id": "ind-09",
+   "category": "decision_lineage",
+   "system": "rag_tfidf",
+   "correct": false,
+   "reason": "The answer failed to identify KEP-4438, which is explicitly listed in the reference answer.",
+   "source_ok": false,
+   "latency": 3.177052396000363,
+   "status": "ok"
+  },
+  {
+   "id": "ind-09",
+   "category": "decision_lineage",
+   "system": "rag_vector",
+   "correct": false,
+   "reason": "The answer failed to identify KEP-4438, which is explicitly listed in the reference answer.",
+   "source_ok": false,
+   "latency": 7.067575068998849,
+   "status": "ok"
+  },
+  {
+   "id": "ind-10",
+   "category": "docs_drift",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly confirms the consistency between the documentation and the feature gate's history, noting the stable release in v1.29.",
+   "source_ok": true,
+   "latency": 13.838653490995057,
+   "status": "ok"
+  },
+  {
+   "id": "ind-10",
+   "category": "docs_drift",
+   "system": "rag_tfidf",
+   "correct": true,
+   "reason": "The answer correctly confirms the consistency between the documentation label and the feature gate's graduation to stable in version 1.29.",
+   "source_ok": false,
+   "latency": 4.270687789001386,
+   "status": "ok"
+  },
+  {
+   "id": "ind-10",
+   "category": "docs_drift",
+   "system": "rag_vector",
+   "correct": true,
+   "reason": "The answer correctly confirms the consistency between the documentation label and the feature gate's graduation to stable in version 1.29.",
+   "source_ok": false,
+   "latency": 5.307700286997715,
+   "status": "ok"
+  },
+  {
+   "id": "ind-11",
+   "category": "docs_drift",
+   "system": "lineage",
+   "correct": false,
+   "reason": "The answer incorrectly claims the label can go out of date, whereas the reference answer states it cannot drift because it is looked up from the gate file.",
+   "source_ok": true,
+   "latency": 23.0802202509949,
+   "status": "ok"
+  },
+  {
+   "id": "ind-11",
+   "category": "docs_drift",
+   "system": "rag_tfidf",
+   "correct": false,
+   "reason": "The answer incorrectly claims insufficient evidence instead of explaining that the label uses a feature gate lookup to prevent drift.",
+   "source_ok": false,
+   "latency": 5.175243145989953,
+   "status": "ok"
+  },
+  {
+   "id": "ind-11",
+   "category": "docs_drift",
+   "system": "rag_vector",
+   "correct": false,
+   "reason": "The answer failed to provide the required information about the feature gate lookup mechanism and incorrectly claimed insufficient evidence.",
+   "source_ok": false,
+   "latency": 8.572811805992387,
+   "status": "ok"
+  },
+  {
+   "id": "ind-12",
+   "category": "multi_hop",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies the three required members who are SIG Apps chairs and excludes the non-chair members.",
+   "source_ok": true,
+   "latency": 17.977381842007162,
+   "status": "ok"
+  },
+  {
+   "id": "ind-12",
+   "category": "multi_hop",
+   "system": "rag_tfidf",
+   "correct": false,
+   "reason": "The answer failed to provide the required list of names and instead claimed insufficient evidence.",
+   "source_ok": false,
+   "latency": 1.2336474509938853,
+   "status": "ok"
+  },
+  {
+   "id": "ind-12",
+   "category": "multi_hop",
+   "system": "rag_vector",
+   "correct": false,
+   "reason": "The answer failed to provide the required list of names and instead claimed insufficient evidence.",
+   "source_ok": false,
+   "latency": 4.949274484999478,
+   "status": "ok"
+  },
+  {
+   "id": "ind-13",
+   "category": "multi_hop",
+   "system": "lineage",
+   "correct": true,
+   "reason": "The answer correctly identifies mrunalp as the only approver from KEP-753 who is also in the sig-node-approvers alias.",
+   "source_ok": true,
+   "latency": 47.799976346999756,
+   "status": "ok"
+  },
+  {
+   "id": "ind-13",
+   "category": "multi_hop",
+   "system": "rag_tfidf",
+   "correct": false,
+   "reason": "The answer provided insufficient evidence, whereas the reference answer identifies mrunalp as the correct individual.",
+   "source_ok": false,
+   "latency": 2.428411437998875,
+   "status": "ok"
+  },
+  {
+   "id": "ind-13",
+   "category": "multi_hop",
+   "system": "rag_vector",
+   "correct": false,
+   "reason": "The answer provided insufficient evidence, whereas the reference answer identifies mrunalp as the correct individual.",
+   "source_ok": false,
+   "latency": 7.015525410999544,
+   "status": "ok"
+  },
+  {
+   "id": "ind-14",
+   "category": "unanswerable",
+   "system": "lineage",
+   "correct": false,
+   "reason": "The answer incorrectly identifies a removal release, whereas the reference answer states there is insufficient evidence.",
+   "source_ok": true,
+   "latency": 12.146973902999889,
+   "status": "ok"
+  },
+  {
+   "id": "ind-14",
+   "category": "unanswerable",
+   "system": "rag_tfidf",
+   "correct": false,
+   "reason": "The answer incorrectly identifies a removal release when the reference answer states there is insufficient evidence.",
+   "source_ok": false,
+   "latency": 4.585658928001067,
+   "status": "ok"
+  },
+  {
+   "id": "ind-14",
+   "category": "unanswerable",
+   "system": "rag_vector",
+   "correct": true,
+   "reason": "The answer correctly identifies that there is insufficient evidence to determine the specific release.",
+   "source_ok": false,
+   "latency": 5.413273798010778,
+   "status": "ok"
+  },
+  {
+   "id": "ind-15",
+   "category": "unanswerable",
+   "system": "lineage",
+   "correct": false,
+   "reason": "The answer fails to state that there is insufficient evidence to identify the specific approver for the alpha milestone.",
+   "source_ok": true,
+   "latency": 18.06236287399952,
+   "status": "ok"
+  },
+  {
+   "id": "ind-15",
+   "category": "unanswerable",
+   "system": "rag_tfidf",
+   "correct": true,
+   "reason": "The answer correctly identifies that there is insufficient evidence to name a specific approver for the alpha milestone.",
+   "source_ok": false,
+   "latency": 5.2171079109975835,
+   "status": "ok"
+  },
+  {
+   "id": "ind-15",
+   "category": "unanswerable",
+   "system": "rag_vector",
+   "correct": true,
+   "reason": "The answer correctly identifies that there is insufficient evidence to attribute the alpha milestone approval to a specific person.",
+   "source_ok": false,
+   "latency": 4.076286388008157,
+   "status": "ok"
+  }
+ ]
+}
