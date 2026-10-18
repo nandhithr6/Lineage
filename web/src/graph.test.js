@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTraceGraph, diffLines, distinctPeople, entityGraph, inlineTokens, markdownBlocks, mergeEntity, releaseNum, splitCitations } from './graph.js'
+import { buildTraceGraph, diffLines, distinctPeople, entityGraph, inlineTokens, markdownBlocks, mergeEntity, releaseNum, splitCitations, traceSteps } from './graph.js'
 
 const sections = {
   page: { path: 'content/en/docs/concepts/policy/resource-quotas.md', title: 'Resource Quotas' },
@@ -101,4 +101,18 @@ test('markdown: bold, code and inline bullets become tokens, never HTML', () => 
   assert.deepEqual(markdownBlocks('- one\n- two').map((b) => b.type), ['li', 'li'])
   assert.deepEqual(markdownBlocks(''), [])
   assert.equal(splitCitations(blocks[1].tokens.map((t) => t.text).join('')).filter((p) => p.cite).length, 1)  // citations survive inside a bullet
+})
+
+test("traceSteps walks the path in order and ends with the verdict", () => {
+  const sec = { page: { path: 'p.md', title: 'Resource Quotas' }, claim: { id: 'p.md#s:1', heading: 'Quota', stage: 'alpha', since: '1.8' },
+    gate: { name: 'G', removed: true, history: [{ stage: 'stable', from: '1.25', to: '1.26' }] }, kep: { id: 'k', title: 'Local Ephemeral', sig: 'sig-storage' },
+    link: { link_confidence: 0.84 }, finding: { kind: 'stale_stage', message: 'label says alpha' } }
+  const graph = buildTraceGraph(sec)
+  const steps = traceSteps(sec, graph)
+  assert.equal(steps.length, graph.nodes.length + 1)
+  assert.match(steps[2].text, /alpha since v1\.8/)
+  assert.match(steps[3].text, /84% sure/)
+  assert.match(steps.at(-1).text, /label says alpha/)
+  assert.deepEqual(steps.map((s) => s.count).slice(0, 3), [1, 2, 3])
+  assert.deepEqual(traceSteps(null, graph), [])
 })

@@ -163,3 +163,16 @@ a.card { text-decoration: none; transition: transform .12s, box-shadow .12s, bor
 .page-intro h2 { margin: 0 0 .3rem; font-size: 1.3rem; } .page-intro .what { margin: 0 0 .5rem; max-width: 80ch; }
 .page-intro dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: .9rem; } .page-intro dt { font-weight: 650; color: var(--accent); } .page-intro dd { margin: 0; color: var(--muted); max-width: 90ch; }
 @media (max-width: 720px) { .page-intro dl { grid-template-columns: 1fr; } }
+
+/* replay the trace */
+.player { margin: 0 0 10px; } .player-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; } .btn.ghost { background: var(--surface); color: var(--accent); border: 1px solid var(--border); box-shadow: none; }
+.player-caption { margin: 10px 0 0; padding: 10px 14px; border-left: 4px solid #f59e0b; background: #fffaf0; border-radius: 8px; animation: pop .35s ease both; }
+@keyframes pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .player-caption { animation: none; } }
+
+/* home: the proof path lights up step by step, on a loop */
+.flow { list-style: none; margin: 12px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.flow li { font-size: .78rem; padding: 4px 10px; border-radius: 99px; background: var(--code-bg); color: var(--muted); border: 1px solid var(--border); animation: lit 6.5s ease-in-out infinite; }
+.flow li + li::before { content: '→ '; color: var(--muted); }
+@keyframes lit { 0%, 8% { background: var(--code-bg); color: var(--muted); border-color: var(--border); transform: none; } 14%, 55% { background: color-mix(in srgb, var(--accent) 14%, #fff); color: var(--accent); border-color: var(--accent); transform: translateY(-2px); } 70%, 100% { background: var(--code-bg); color: var(--muted); border-color: var(--border); transform: none; } }
+@media (prefers-reduced-motion: reduce) { .flow li { animation: none; } }

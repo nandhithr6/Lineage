@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api.js'
 import GraphView from './GraphView.jsx'
-import { KIND_LABEL, SEVERITY_LABEL, buildTraceGraph, diffLines, mergeEntity } from './graph.js'
+import { KIND_LABEL, SEVERITY_LABEL, buildTraceGraph, diffLines, mergeEntity, traceSteps } from './graph.js'
 
 const Badge = ({ severity, kind }) => <span className={`badge sev-${severity}`}>{KIND_LABEL[kind] || SEVERITY_LABEL[severity]}</span>
 const Src = ({ url, children = 'source' }) => (url ? <a className="src" href={url} target="_blank" rel="noreferrer">{children} ↗</a> : null)
@@ -53,16 +53,39 @@ function Diff({ diff }) {
   return <pre className="diff" aria-label="Proposed change">{diffLines(diff).filter((l) => l.text).map((l, i) => <div key={i} className={`d-${l.kind}`}>{l.text}</div>)}</pre>
 }
 
-function Detail({ id }) {
+function TracePlayer({ steps, step, setStep }) {
+  const timer = useRef(null)
+  const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null } }
+  useEffect(() => stop, [])
+  if (!steps.length) return null
+  const play = () => {
+    stop(); setStep(1); let i = 1
+    timer.current = setInterval(() => { i += 1; setStep(i); if (i >= steps.length) stop() }, 1600)
+  }
+  const current = step == null ? null : steps[step - 1]
+  return (
+    <div className="player" aria-live="polite">
+      <div className="player-bar">
+        <button className="btn small" onClick={play}>▶ Replay the trace</button>
+        {step != null && <button className="btn small ghost" onClick={() => { stop(); setStep(null) }}>Show everything</button>}
+        <span className="muted small">{step == null ? 'Watch how Lineage got from the badge to the proof, one step at a time.' : `Step ${step} of ${steps.length}`}</span>
+      </div>
+      {current && <p className="player-caption" key={step}><strong>{current.title}.</strong> {current.text}</p>}
+    </div>
+  )
+}
+
+function Detail({ id, replay }) {
   const [d, setD] = useState(null)
   const [err, setErr] = useState(null)
   const [graph, setGraph] = useState({ nodes: [], edges: [] })
   const [fix, setFix] = useState(null)
   const [fixing, setFixing] = useState(false)
+  const [step, setStep] = useState(replay)  // ?replay=N in the address opens the trace already at step N
 
   useEffect(() => {
     let live = true
-    setD(null); setErr(null); setFix(null)
+    setD(null); setErr(null); setFix(null); setStep(replay)
     api.finding(id).then((x) => { if (live) { setD(x); setGraph(buildTraceGraph(x.sections)) } }).catch((e) => live && setErr(e.message))
     return () => { live = false }
   }, [id])
@@ -125,7 +148,8 @@ function Detail({ id }) {
       </section>
 
       <section><h3>5 · Graph path</h3>
-        <GraphView key={d.key} graph={graph} onExpand={expand} />
+        <TracePlayer steps={traceSteps(s, graph)} step={step} setStep={setStep} />
+        <GraphView key={d.key} graph={graph} onExpand={expand} reveal={step} />
       </section>
 
       <section><h3>6 · Suggested reviewers</h3>
@@ -152,7 +176,7 @@ function Detail({ id }) {
   )
 }
 
-export default function FindingsPage({ selectedId }) {
+export default function FindingsPage({ selectedId, replay }) {
   const [list, setList] = useState(null)
   const [err, setErr] = useState(null)
   const [severity, setSeverity] = useState('')
@@ -175,7 +199,7 @@ export default function FindingsPage({ selectedId }) {
             <Badge severity={f.severity} kind={f.kind} /><strong>{f.page_title}</strong>
             <span>{f.section}</span><small>{f.claimed_stage}{f.claimed_since ? ` since v${f.claimed_since}` : ''} · gate {f.gate}</small></a></li>))}</ul>
       </aside>
-      <section className="pane">{selectedId ? <Detail id={selectedId} /> : <div className="panel muted intro">
+      <section className="pane">{selectedId ? <Detail id={selectedId} replay={replay} /> : <div className="panel muted intro">
         <h2>Which docs are out of date?</h2>
         <p>Lineage compares the maturity badges on Kubernetes docs pages (“alpha since v1.8”) with the verified history of the feature each one is about, and proves every claim with a link to its source.</p>
         {list && <ul className="stats" aria-label="What Lineage checked">

@@ -91,7 +91,17 @@ export default function ChatPage({ llmConfigured }) {
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(null)
   const [contrast, setContrast] = useState(false)
-  const session = useRef(`s-${Math.random().toString(36).slice(2, 10)}`)
+  // The memory session id is kept in this browser, so a returning visitor still has their saved notes (the server keeps notes per session id). Falls back to a fresh id if storage is blocked.
+  const session = useRef(null)
+  if (session.current === null) {
+    let id = null
+    try { id = window.localStorage.getItem('lineage-session') } catch { /* storage blocked */ }
+    if (!id) {
+      id = `s-${Math.random().toString(36).slice(2, 12)}`
+      try { window.localStorage.setItem('lineage-session', id) } catch { /* storage blocked */ }
+    }
+    session.current = id
+  }
 
   async function send(text) {
     const question = (text ?? q).trim()
@@ -120,7 +130,7 @@ export default function ChatPage({ llmConfigured }) {
   return (
     <div className="split chat">
       <section className="pane">
-        <PageIntro title="Ask with proof" what="Ask a question in plain English about Kubernetes docs, owners or design decisions. Lineage answers only from facts it finds by walking the graph, and every claim is followed by an evidence chip like e3 that opens the exact source." read="The badge on an answer says how it was reached: 'Answered with a path' (found by following the graph), 'Unknown entity' (the graph does not know a name, so no lookup ran) or 'Not in the graph'. The trace table lists every query behind the answer. If the wording names something the evidence does not contain, the draft is withheld." tryIt="Click an example below. Tick 'Answer with plain retrieval too' to compare the same question answered by plain text search, without the graph." />
+        <PageIntro title="Ask with proof" what="Ask a question in plain English about Kubernetes docs, owners or design decisions. Lineage answers only from facts it finds by walking the graph, and every claim is followed by an evidence chip like e3 that opens the exact source." read="The badge on an answer says how it was reached: 'Answered with a path' (found by following the graph), 'Unknown entity' (the graph does not know a name, so no lookup ran) or 'Not in the graph'. The trace table lists every query behind the answer. If the wording names something the evidence does not contain, the draft is withheld." tryIt="Click an example below. Tick 'Answer with plain retrieval too' to compare the same question answered by plain text search, without the graph. Press 'Remember this answer' on a graph answer: the note stays tied to this browser and is re-checked against the graph before it is reused (a free host forgets notes when it restarts)." />
         {llmConfigured === false && <div className="panel note" role="status">No language model is configured here, so only the example questions below (which have saved answers with their evidence) and the rest of the app work. For new questions add <code>GEMINI_API_KEY</code> (or <code>GROQ_API_KEY</code>) to <code>.env</code> and restart the API.</div>}
         {msgs.length === 0 && <div className="panel muted"><p>Example questions (saved answers, no API key needed):</p>
           <div className="samples">{SAMPLES.map((s) => <button key={s} className="chip" onClick={() => send(s)}>{s}</button>)}</div></div>}

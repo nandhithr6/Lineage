@@ -49,6 +49,25 @@ export function buildTraceGraph(sections) {
   return { nodes, edges, highlight: finding?.kind }
 }
 
+/** The trace as plain-English steps, one per node of the finding's own path (in order), plus a verdict. `count` is how many nodes are visible at that step. */
+export function traceSteps(sections, graph) {
+  if (!sections || !graph?.nodes?.length) return []
+  const { page, claim, gate, kep, link, finding } = sections
+  const last = gate.history?.length ? gate.history[gate.history.length - 1] : null
+  const say = {
+    DocPage: ['The docs page', `${page?.title || page?.path}`],
+    DocSection: ['The section', `“${claim.heading}”`],
+    Claim: ['The claim', `The page says ${claim.stage}${claim.since ? ` since v${claim.since}` : ''}.`],
+    FeatureGate: ['The feature it is about', `Lineage linked the badge to the feature gate ${gate.name}${link?.link_confidence != null ? ` (${Math.round(link.link_confidence * 100)}% sure)` : ''}.`],
+    Release: ['What really happened', last ? `The gate's verified history ends at ${last.stage} (${last.to})${gate.removed ? ', and the gate has since been removed' : ''}.` : 'No stage history.'],
+    KEP: ['The design decision', kep ? `The feature was decided in the KEP “${kep.title}”.` : ''],
+    SIG: ['The team', kep?.sig ? `That decision belongs to ${kep.sig}.` : ''],
+  }
+  const steps = graph.nodes.map((n, i) => ({ title: (say[n.type] || [n.type])[0], text: (say[n.type] || ['', n.label])[1], count: i + 1, nodeId: n.id }))
+  steps.push({ title: 'The verdict', text: finding?.message || '', count: graph.nodes.length, nodeId: null })
+  return steps
+}
+
 /** Merge neighbors returned by GET /entity/... into an existing graph (new nodes/edges are off the finding's path). */
 export function mergeEntity(graph, entity) {
   const have = new Set(graph.nodes.map((n) => n.id))

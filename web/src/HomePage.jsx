@@ -1,7 +1,24 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from './api.js'
 
 const fmt = (n) => (n == null ? '–' : n.toLocaleString('en-US'))
+
+/** A number that counts up from zero once, so the live figures feel alive; shows the final value at once if the visitor prefers reduced motion. */
+function CountUp({ value }) {
+  const [shown, setShown] = useState(null)
+  const raf = useRef(0)
+  useEffect(() => {
+    if (value == null) { setShown(null); return undefined }
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setShown(value); return undefined }
+    const t0 = performance.now(), dur = 1100
+    const tick = (t) => { const k = Math.min(1, (t - t0) / dur); setShown(Math.round(value * (1 - (1 - k) ** 3))); if (k < 1) raf.current = requestAnimationFrame(tick) }
+    raf.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf.current)
+  }, [value])
+  return <>{fmt(shown)}</>
+}
+
+const FLOW = ['The badge on the page', 'The feature gate it is about', 'Its stage in every release', 'The design decision (KEP)', 'The verdict, with sources']
 
 const STEPS = [
   ['1', 'Find', 'Spot a docs page whose "Beta since v1.x" badge no longer matches reality, by asking, or from the drift detector, which compares every badge with the verified history.'],
@@ -42,11 +59,11 @@ export default function HomePage() {
       </section>
 
       <ul className="stats big" aria-label="What is in the graph">
-        <li><strong>{fmt(list?.counts?.stale_stage)}</strong><span>docs claims proven out of date</span></li>
-        <li><strong>{fmt(about?.detector?.['claims checked'])}</strong><span>docs badges checked</span></li>
-        <li><strong>{fmt(c.KEP)}</strong><span>design decisions (KEPs)</span></li>
-        <li><strong>{fmt(c.PR)}</strong><span>pull requests</span></li>
-        <li><strong>{fmt(c.Person)}</strong><span>people</span></li>
+        <li><strong><CountUp value={list?.counts?.stale_stage} /></strong><span>docs claims proven out of date</span></li>
+        <li><strong><CountUp value={about?.detector?.['claims checked']} /></strong><span>docs badges checked</span></li>
+        <li><strong><CountUp value={c.KEP} /></strong><span>design decisions (KEPs)</span></li>
+        <li><strong><CountUp value={c.PR} /></strong><span>pull requests</span></li>
+        <li><strong><CountUp value={c.Person} /></strong><span>people</span></li>
       </ul>
 
       <section className="split-2">
@@ -63,6 +80,7 @@ export default function HomePage() {
             <span aria-hidden="true">→</span>
             <div className="verified"><small>Verified history</small><strong>Stable since 1.25, gate since removed</strong></div>
           </div>
+          <ol className="flow" aria-label="How Lineage proves it">{FLOW.map((t, i) => <li key={t} style={{ animationDelay: `${i * 0.9}s` }}>{t}</li>)}</ol>
           <p className="small muted">Lineage was never told which feature the badge is about. It worked that out from the page and the design decision, and ruled out the look-alike gates that did not exist yet in v1.8.</p>
           <a href="#/findings">Open the full trace →</a>
         </aside>

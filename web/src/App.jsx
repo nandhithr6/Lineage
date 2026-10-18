@@ -48,7 +48,7 @@ export default function App() {
           : route.page === 'changes' ? <ChangesPage />
           : route.page === 'insights' ? <InsightsPage />
           : route.page === 'about' ? <AboutPage />
-          : route.page === 'findings' ? <FindingsPage selectedId={route.id} />
+          : route.page === 'findings' ? <FindingsPage selectedId={route.id} replay={Number(route.params.get('replay')) || null} />
           : <HomePage />}
       </main>
       <footer>Built on public Kubernetes project data. Not an official Kubernetes or CNCF tool. Lineage only drafts; it never posts to Kubernetes.</footer>

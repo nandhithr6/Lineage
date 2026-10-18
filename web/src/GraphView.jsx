@@ -3,7 +3,7 @@ import cytoscape from 'cytoscape'
 import { TYPE_COLORS } from './graph.js'
 
 /** Draws the finding's graph. The finding's own path is bold; tap any node to pull its neighbors in from the API. */
-export default function GraphView({ graph, onExpand, hint = "Bold blue = this finding's path. Tap a node to expand it." }) {
+export default function GraphView({ graph, onExpand, reveal = null, hint = "Bold blue = this finding's path. Tap a node to expand it." }) {
   const el = useRef(null)
   const cy = useRef(null)
   const expand = useRef(onExpand)
@@ -25,6 +25,8 @@ export default function GraphView({ graph, onExpand, hint = "Bold blue = this fi
           'text-rotation': 'autorotate', 'text-background-color': dark ? '#111827' : '#ffffff', 'text-background-opacity': 0.85, 'text-background-padding': 2 } },
         { selector: 'edge[?onPath]', style: { width: 3.5, 'line-color': '#2563eb', 'target-arrow-color': '#2563eb', color: '#2563eb' } },
         { selector: '.compact edge', style: { label: '' } },
+        { selector: '.faded', style: { opacity: 0.07 } },
+        { selector: 'node.now', style: { 'border-width': 4, 'border-color': '#f59e0b' } },
         { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#f59e0b' } },
       ],
     })
@@ -62,6 +64,18 @@ export default function GraphView({ graph, onExpand, hint = "Bold blue = this fi
     c.fit(undefined, 30)
     c.style().update()
   }, [graph])
+
+  useEffect(() => {  // "replay the trace": only the first `reveal` nodes of the path are in the story so far; the newest one is ringed
+    const c = cy.current
+    if (!c) return
+    c.elements().removeClass('faded now')
+    if (reveal == null) return
+    const shown = new Set(graph.nodes.slice(0, reveal).map((n) => n.id))
+    c.nodes().forEach((n) => { if (!shown.has(n.id())) n.addClass('faded') })
+    c.edges().forEach((e) => { if (!shown.has(e.source().id()) || !shown.has(e.target().id())) e.addClass('faded') })
+    const newest = graph.nodes[reveal - 1]
+    if (newest) c.getElementById(newest.id).addClass('now')
+  }, [reveal, graph])
 
   return (
     <figure className="graph">
